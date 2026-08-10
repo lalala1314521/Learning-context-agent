@@ -101,7 +101,8 @@ def _match_concept(
     candidates = _top_candidates(vector)
     if not candidates:
         return None, "new", 0.0
-    top_id, top_sim = candidates[0]
+    top_concept, top_sim = candidates[0]
+    top_id = top_concept["id"]
     if top_sim >= 0.92:
         return top_id, "vector_high", top_sim
     gray = [(c, sim) for c, sim in candidates if sim >= 0.75]
