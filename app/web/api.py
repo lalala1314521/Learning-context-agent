@@ -300,7 +300,7 @@ def _local_answer(question: str, context: str) -> str:
 
 def _ask_llm(question: str, context: str):
     from langchain_core.messages import HumanMessage, SystemMessage
-    from langchain_deepseek import ChatDeepSeek
+    from app.graph.nodes import _get_llm
 
     system = (
         "你是学习脉络智能体的知识问答助手。请先检索用户知识库中的内容，再回答问题。\n"
@@ -313,14 +313,7 @@ def _ask_llm(question: str, context: str):
     if not config.DEEPSEEK_API_KEY:
         return _local_answer(question, context)
     try:
-        llm = ChatDeepSeek(
-            model=config.DEEPSEEK_CHAT_MODEL,
-            api_key=config.DEEPSEEK_API_KEY,
-            base_url=config.DEEPSEEK_BASE_URL,
-            temperature=0.3,
-            timeout=8,
-            max_retries=0,
-        )
+        llm = _get_llm()
         response = llm.invoke([SystemMessage(content=system), HumanMessage(content=user)])
         return response.content if hasattr(response, "content") else str(response)
     except Exception:
