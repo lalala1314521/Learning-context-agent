@@ -2,10 +2,11 @@
 
 import json
 import sys
-from app.config import config, Config
+from app.config import Config
+from app.logging_config import setup_logging
 from app.memory.database import init_db, get_checkpointer
 from app.graph.builder import build_graph
-from app.graph.state import AgentState
+from app.graph.state import build_initial_state
 
 
 def print_banner():
@@ -69,10 +70,11 @@ def run_cli():
 
     init_db()
     print("[OK] 数据库初始化完成")
+    setup_logging()
 
     checkpointer = get_checkpointer()
     graph = build_graph(checkpointer=checkpointer)
-    print("[OK] Agent 图编译完成\n")
+    print("[OK] Agent 图编译完成（ReAct 模式）\n")
 
     print_banner()
 
@@ -116,23 +118,11 @@ def run_cli():
                 print("用法: /format mermaid | markdown | both")
             continue
 
-        initial_state: AgentState = {
-            "messages": [],
-            "user_input": user_input,
-            "input_type": "text",
-            "parsed_content": "",
-            "source_name": "",
-            "output_format": output_format,
-            "web_search_enabled": web_search_enabled,
-            "supplementary_info": "",
-            "current_graph_id": "",
-            "graph_mermaid": "",
-            "graph_markdown": "",
-            "node_payloads": "",
-            "memory_snapshot_id": "",
-            "action": "",
-            "error": "",
-        }
+        initial_state = build_initial_state(
+            user_input,
+            output_format=output_format,
+            web_search_enabled=web_search_enabled,
+        )
 
         result = graph.invoke(initial_state, config_ctx)
 
@@ -168,12 +158,16 @@ def run_cli():
         if memory_id:
             print(f"[已记忆] 摘要 ID: {memory_id}")
 
-        if not mermaid and not markdown and action == "chat":
-            messages = result.get("messages", [])
-            if messages:
-                last_msg = messages[-1]
-                content = last_msg.content if hasattr(last_msg, "content") else str(last_msg)
-                print(f"\n{content}")
+        # ReAct 最终答复（聊天 / 生成总结 / 知识问答）
+        messages = result.get("messages", [])
+        if messages:
+            last_msg = messages[-1]
+            if hasattr(last_msg, "content"):
+                content = last_msg.content
+                if content:
+                    print(f"\n{content}")
+            else:
+                print(f"\n{last_msg}")
 
 
 if __name__ == "__main__":

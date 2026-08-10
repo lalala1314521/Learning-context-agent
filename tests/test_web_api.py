@@ -94,7 +94,7 @@ class WebApiTestCase(unittest.TestCase):
         }
         fake_graph = mock.Mock()
         fake_graph.invoke.return_value = fake_result
-        with mock.patch("app.web.api.get_graph_runner", return_value=fake_graph):
+        with mock.patch("app.web.routers.graphs.get_graph_runner", return_value=fake_graph):
             response = self.client.post(
                 "/api/v1/graphs/generate",
                 json={"content": "测试内容", "output_format": "both"},
@@ -118,20 +118,21 @@ class WebApiTestCase(unittest.TestCase):
         }
         fake_graph = mock.Mock()
         fake_graph.invoke.return_value = fake_result
-        with mock.patch("app.web.api.get_graph_runner", return_value=fake_graph):
+        # 后台线程会异步读取 get_graph_runner，因此 mock 需覆盖整个轮询期
+        with mock.patch("app.web.routers.graphs.get_graph_runner", return_value=fake_graph):
             started = self.client.post(
                 "/api/v1/graphs/generate/async",
                 json={"content": "异步内容", "output_format": "both"},
             )
-        self.assertEqual(started.status_code, 200)
-        job_id = started.json()["data"]["id"]
-        data = None
-        for _ in range(20):
-            job = self.client.get(f"/api/v1/jobs/{job_id}").json()["data"]
-            if job["status"] in ("done", "error"):
-                data = job
-                break
-            time.sleep(0.05)
+            self.assertEqual(started.status_code, 200)
+            job_id = started.json()["data"]["id"]
+            data = None
+            for _ in range(20):
+                job = self.client.get(f"/api/v1/jobs/{job_id}").json()["data"]
+                if job["status"] in ("done", "error"):
+                    data = job
+                    break
+                time.sleep(0.05)
         self.assertIsNotNone(data)
         self.assertEqual(data["status"], "done")
         self.assertEqual(data["result"]["id"], "g2")
@@ -243,7 +244,7 @@ class WebApiTestCase(unittest.TestCase):
         node_id = repository.add_node(graph_id, "监督学习", note="使用带标签数据训练")
         repository.save_memory_snapshot(graph_id, "机器学习记忆", ["监督学习"])
         with mock.patch(
-            "app.web.api._ask_llm",
+            "app.web.routers.knowledge.ask_llm",
             return_value="已收录知识：监督学习。知识库未直接覆盖：强化学习。",
         ):
             response = self.client.post(

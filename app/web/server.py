@@ -8,8 +8,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.logging_config import setup_logging
 from app.web.api import ApiError, router
 
+setup_logging()
 BASE_DIR = Path(__file__).resolve().parent
 
 

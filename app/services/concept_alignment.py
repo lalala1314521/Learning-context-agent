@@ -305,9 +305,9 @@ def migrate_existing_graphs(limit: int | None = None) -> dict:
     for graph in graphs:
         nodes = repository.get_nodes(graph["id"])
         if not nodes:
-            from app.web.api import _hydrate_nodes
+            from app.services.graph_management import hydrate_nodes
             try:
-                _hydrate_nodes(graph["id"])
+                hydrate_nodes(graph["id"])
                 nodes = repository.get_nodes(graph["id"])
             except Exception:
                 continue

@@ -29,20 +29,20 @@ def parse_document(file_path: str) -> dict:
         return {"title": "", "content": "", "file_type": "", "error": f"文件不存在: {file_path}"}
 
     suffix = fp.suffix.lower()
+    title = fp.stem
     magic_error = _validate_magic(fp, suffix)
     if magic_error:
         return {
             "title": title, "content": "", "file_type": suffix,
             "error": magic_error,
         }
-    title = fp.stem
     try:
         if suffix in (".txt", ".md", ".py", ".java", ".cpp", ".c", ".h", ".js", ".ts", ".html", ".css", ".xml", ".json", ".yaml", ".yml"):
             content = fp.read_text(encoding="utf-8")
             return {"title": title, "content": content, "file_type": suffix}
 
         elif suffix in (".srt", ".vtt"):
-            content = _parse_subtitle(fp.read_text(encoding="utf-8"))
+            content = clean_subtitle_text(fp.read_text(encoding="utf-8"))
             return {"title": title, "content": content, "file_type": suffix}
 
         elif suffix == ".pdf":
@@ -102,7 +102,8 @@ def _parse_ipynb(fp: Path) -> dict:
     return {"title": fp.stem, "content": content, "file_type": ".ipynb"}
 
 
-def _parse_subtitle(text: str) -> str:
+def clean_subtitle_text(text: str) -> str:
+    """清理字幕时间轴与元数据，仅保留字幕正文（供 SRT/VTT 文件与在线字幕复用）。"""
     lines = []
     for line in text.splitlines():
         stripped = line.strip()

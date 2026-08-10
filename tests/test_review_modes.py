@@ -39,11 +39,12 @@ class ReviewModesTestCase(unittest.TestCase):
         return repository.ensure_review(graph_id, node_id, quiz_id)
 
     def test_fsrs_review_and_history(self):
+        from app.services.review import submit_review
         review_id = self._seed_review()
         before = repository.get_due_review(limit=10)
         self.assertEqual(before[0]["id"], review_id)
         graph_id = before[0]["graph_id"]
-        self.assertTrue(repository.submit_review(review_id, 3))
+        self.assertTrue(submit_review(review_id, 3))
 
         rows = repository.get_due_review(limit=10)
         self.assertNotIn(review_id, [row["id"] for row in rows])

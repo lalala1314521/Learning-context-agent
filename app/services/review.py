@@ -12,6 +12,35 @@ _sessions: dict[str, dict] = {}
 _MODES = ("flashcard", "graph_recall", "matching", "feynman", "socratic", "cross_doc")
 
 
+def submit_review(review_id: str, rating: int) -> bool:
+    """提交一次复习：FSRS 调度 + 更新进度 + 写入历史（编排在 service 层）。"""
+    from datetime import datetime
+
+    from app.services.fsrs import schedule_review
+
+    row = repository.get_review(review_id)
+    if not row:
+        return False
+    now = datetime.now()
+    scheduled = schedule_review(
+        {
+            "repetitions": row["repetitions"],
+            "interval_days": row["interval_days"],
+            "ease_factor": row["ease_factor"],
+            "difficulty": row["difficulty"],
+            "stability": row["stability"],
+            "last_reviewed_at": row["last_reviewed_at"],
+            "lapses": row["lapses"] if "lapses" in row else 0,
+        },
+        rating,
+        now=now,
+    )
+    repository.update_review_state(review_id, scheduled)
+    if row["concept_id"]:
+        repository.add_review_history(row["concept_id"], review_id, rating, scheduled)
+    return True
+
+
 def create_review_session(
     mode: str | None = None,
     count: int = 8,
@@ -60,7 +89,7 @@ def submit_session_item(
     item["response"] = response
     feedback = _grade(item, response)
     if item.get("review_id") and response.get("rating") is not None:
-        repository.submit_review(item["review_id"], int(response["rating"]))
+        submit_review(item["review_id"], int(response["rating"]))
     return {
         "item_id": item_id,
         "feedback": feedback,

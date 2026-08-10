@@ -1,5 +1,7 @@
 """Video subtitle ingestion: direct subtitle files and transcript API."""
 
+from app.tools.doc_parser import clean_subtitle_text
+
 
 def fetch_video_subtitles(url: str) -> dict:
     lower = url.lower()
@@ -10,7 +12,7 @@ def fetch_video_subtitles(url: str) -> dict:
             response.raise_for_status()
             return {
                 "title": url.rsplit("/", 1)[-1],
-                "content": _strip_subtitle_timing(response.text),
+                "content": clean_subtitle_text(response.text),
                 "url": url,
             }
         except Exception as exc:
@@ -39,20 +41,6 @@ def fetch_video_subtitles(url: str) -> dict:
         "url": url,
         "error": "暂支持直接字幕文件或 YouTube 链接，B 站请先导出字幕文件",
     }
-
-
-def _strip_subtitle_timing(text: str) -> str:
-    lines = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.isdigit():
-            continue
-        if "-->" in stripped:
-            continue
-        if stripped.startswith(("WEBVTT", "Kind:", "Language:", "NOTE")):
-            continue
-        lines.append(stripped)
-    return "\n".join(lines)
 
 
 def _extract_youtube_id(url: str) -> str:

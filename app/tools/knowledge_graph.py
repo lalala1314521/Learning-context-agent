@@ -2,8 +2,15 @@
 
 from langchain_core.tools import tool
 from app.memory.repository import (
-    create_graph, get_graph, update_graph, search_graphs, list_graphs, delete_graph,
+    create_graph, get_graph, search_graphs, list_graphs, delete_graph,
     add_node, get_nodes, update_node, delete_node,
+)
+from app.tools.react_tools import (
+    tool_ask_knowledge,
+    tool_generate_graph,
+    tool_parse_file,
+    tool_parse_url,
+    tool_web_search,
 )
 
 
@@ -115,6 +122,7 @@ def tool_delete_graph(graph_id: str) -> str:
 
 
 ALL_TOOLS = [
+    # 脉络图 CRUD（确定性执行，供 Agent 自主调用）
     tool_create_graph,
     tool_search_graphs,
     tool_list_graphs,
@@ -123,4 +131,10 @@ ALL_TOOLS = [
     tool_update_node,
     tool_delete_node,
     tool_delete_graph,
+    # ReAct 高级交互工具（桥接到确定性管线）
+    tool_generate_graph,
+    tool_web_search,
+    tool_parse_file,
+    tool_parse_url,
+    tool_ask_knowledge,
 ]

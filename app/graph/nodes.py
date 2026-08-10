@@ -1,39 +1,56 @@
-"""LangGraph 节点实现：路由、内容解析、脉络图生成、记忆总结。"""
+"""LangGraph 节点实现：意图路由、内容解析、确定性生成/保存、概念对齐、记忆持久化。
 
-import json
+自由文本的生成 / 对话 / 知识问答交给 ReAct 循环（见 app/graph/agent.py）；
+显式命令（list / search / open / 管理 / 文件 / 网址）走本模块的确定性节点。
+"""
+
 import re
+
 from app.config import config
-from app.graph.mermaid_parser import parse_graph_structure
 from app.graph.state import AgentState
-from app.memory.repository import add_node as repo_add_node, save_memory_snapshot
-from app.memory.repository import save_content_chunks
-from app.memory.embeddings import embed_texts
+from app.logging_config import get_logger
+from app.memory.repository import save_memory_snapshot
 from app.services.concept_alignment import align_graph_nodes
-from app.services.chunking import chunk_content, classify_content
-from app.services.longtext import (
-    create_book_subgraphs,
-    map_reduce,
-    prepare_book_payload,
-)
-from app.prompts.system import SYSTEM_PROMPT
-from app.prompts.graph_gen import GRAPH_GEN_PROMPT, MEMORY_SUMMARY_PROMPT
+from app.services.graph_generation import generate_graph_fields, save_generated_graph
+from app.services.llm import get_llm, invoke_structured
+from app.prompts.graph_gen import MEMORY_SUMMARY_PROMPT
 from app.tools.web_search import search_web
 from app.tools.knowledge_graph import (
-    tool_create_graph, tool_list_graphs, tool_search_graphs,
+    tool_list_graphs, tool_search_graphs,
     tool_get_graph, tool_add_node, tool_update_node, tool_delete_node,
     tool_delete_graph,
 )
-from langchain_core.messages import HumanMessage, SystemMessage
 
+logger = get_logger("graph.nodes")
 
-def _get_llm(model: str | None = None):
-    from langchain_deepseek import ChatDeepSeek
-    return ChatDeepSeek(
-        model=model or config.DEEPSEEK_CHAT_MODEL,
-        api_key=config.DEEPSEEK_API_KEY,
-        base_url=config.DEEPSEEK_BASE_URL,
-        temperature=0.3,
-    )
+# 显式命令前缀 → action 映射（规则快速路径，优先级高于 LLM 意图）
+_RULE_ROUTES: list[tuple[tuple[str, ...], str]] = [
+    (("list", "列表", "列出", "/list"), "list_graphs"),
+    (("/node ", "/graph ", "添加节点", "删除节点", "更新节点",
+      "修改节点", "关联节点", "删除脉络图"), "manage_graph"),
+    (("/open ", "打开 ", "查看脉络 ", "get graph "), "get_graph"),
+    (("search ", "搜索 ", "查找 ", "/search ", "回顾 ", "复习 ", "检索 "), "search_graphs"),
+    (("files:", "批量文件:", "file:", "文件:", "/file "), "parse_file"),
+    (("urls:", "批量网址:", "url:", "网址:", "http://", "https://", "/url "), "parse_url"),
+]
+
+_INTENT_ACTIONS = {
+    "list_graphs", "search_graphs", "get_graph", "manage_graph",
+    "parse_file", "parse_url", "generate_graph", "chat",
+}
+
+_INTENT_PROMPT = """你是意图分类器。判断用户想做什么，只输出 JSON：{"action": "<action>"}
+可选 action（只能选一个）：
+- list_graphs：列出/查看所有脉络图
+- search_graphs：搜索、检索、回顾、复习已有脉络
+- get_graph：打开、查看某一张指定的脉络图
+- manage_graph：添加/删除/更新节点，或删除脉络图
+- parse_file：解析本地文件
+- parse_url：抓取并解析一个网页
+- generate_graph：把提供的内容整理生成一张新脉络图
+- chat：闲聊、求助、或基于知识库的知识问答
+
+用户输入：{user_input}"""
 
 
 def _strip_prefix(user_input: str, prefixes: tuple[str, ...]) -> str:
@@ -43,29 +60,59 @@ def _strip_prefix(user_input: str, prefixes: tuple[str, ...]) -> str:
     return user_input.strip()
 
 
+def _rule_route(user_input: str) -> tuple[str, str] | None:
+    """规则快速路径：返回 (action, input_type) 或 None。"""
+    if not user_input:
+        return None
+    lower = user_input.lower()
+    if lower in ("list", "列表", "列出", "/list"):
+        return "list_graphs", "manage"
+    for prefixes, action in _RULE_ROUTES:
+        if lower.startswith(prefixes):
+            input_type = "file" if action == "parse_file" else (
+                "url" if action == "parse_url" else "manage"
+            )
+            return action, input_type
+    return None
+
+
+def _llm_intent(user_input: str) -> str:
+    """轻量 LLM 意图分类；失败返回空字符串（由调用方降级到默认）。"""
+    if not config.DEEPSEEK_API_KEY:
+        return ""
+    data = invoke_structured(
+        _INTENT_PROMPT.format(user_input=user_input[:800]),
+        retries=0,
+    )
+    if not isinstance(data, dict):
+        return ""
+    action = str(data.get("action") or "").strip()
+    return action if action in _INTENT_ACTIONS else ""
+
+
 def router_node(state: AgentState) -> dict:
-    """入口路由节点：识别用户意图，设置 action。"""
+    """入口路由节点：规则快速路径优先，其次轻量 LLM 意图分类，默认走 ReAct。"""
     user_input = state.get("user_input", "").strip()
     if not user_input:
         return {"action": "chat", "input_type": "text"}
-    lower = user_input.lower()
-    if lower in ("list", "列表", "列出", "/list"):
-        return {"action": "list_graphs", "input_type": "manage"}
-    if lower.startswith((
-        "/node ", "/graph ", "添加节点", "删除节点", "更新节点",
-        "修改节点", "关联节点", "删除脉络图",
-    )):
-        return {"action": "manage_graph", "input_type": "manage"}
-    if lower.startswith(("/open ", "打开 ", "查看脉络 ", "get graph ")):
-        return {"action": "get_graph", "input_type": "manage"}
-    if lower.startswith(("search ", "搜索 ", "查找 ", "/search ",
-                         "回顾 ", "复习 ", "检索 ")):
-        return {"action": "search_graphs", "input_type": "manage"}
-    if lower.startswith(("files:", "批量文件:", "file:", "文件:", "/file ")):
+
+    rule = _rule_route(user_input)
+    if rule:
+        return {"action": rule[0], "input_type": rule[1]}
+
+    # 长内容直接判定为生成脉络，避免无意义的分类调用
+    if len(user_input) >= 200:
+        return {"action": "generate_graph", "input_type": "text"}
+
+    action = _llm_intent(user_input)
+    if action in ("list_graphs", "search_graphs", "get_graph", "manage_graph"):
+        return {"action": action, "input_type": "manage"}
+    if action == "parse_file":
         return {"action": "parse_file", "input_type": "file"}
-    if lower.startswith(("urls:", "批量网址:", "url:", "网址:",
-                         "http://", "https://", "/url ")):
+    if action == "parse_url":
         return {"action": "parse_url", "input_type": "url"}
+    if action == "chat":
+        return {"action": "chat", "input_type": "text"}
     return {"action": "generate_graph", "input_type": "text"}
 
 
@@ -88,8 +135,7 @@ def parse_content_node(state: AgentState) -> dict:
             else:
                 parts.append(result["content"])
             source_name = result.get("title") or file_path
-        content = "\n\n".join(parts)
-        return {"parsed_content": content, "source_name": source_name}
+        return {"parsed_content": "\n\n".join(parts), "source_name": source_name}
     elif action == "parse_url":
         raw = _strip_prefix(user_input, ("urls:", "批量网址:", "url:", "网址:", "/url "))
         urls = [u.strip() for u in re.split(r"[;,；，]", raw) if u.strip()]
@@ -105,32 +151,30 @@ def parse_content_node(state: AgentState) -> dict:
             else:
                 parts.append(result["content"])
             source_name = result.get("url") or url
-        content = "\n\n".join(parts)
-        return {"parsed_content": content, "source_name": source_name}
+        return {"parsed_content": "\n\n".join(parts), "source_name": source_name}
     else:
         return {"parsed_content": user_input, "source_name": ""}
 
 
 def web_search_node(state: AgentState) -> dict:
-    """联网搜索节点：补充搜索上下文。"""
+    """联网搜索节点（确定性路径用）：为已解析内容补充搜索上下文。"""
     if not state.get("web_search_enabled", False):
         return {"supplementary_info": ""}
     content = state.get("parsed_content", "")
     query = content[:200] if content else state.get("user_input", "")
     if len(content) > 2000:
         try:
-            llm = _get_llm()
-            response = llm.invoke([HumanMessage(content=(
+            response = invoke_structured(
                 "请从下面内容提炼 2-5 个用于联网搜索的中文关键词或短语，"
-                "只输出 JSON：{\"query\": \"关键词\"}\n\n"
-                f"{content[:6000]}"
-            ))])
-            text = response.content if hasattr(response, "content") else str(response)
-            data = _extract_json_object(text)
-            if data and data.get("query"):
-                query = str(data["query"]).strip()[:200]
-        except Exception:
-            pass
+                '只输出 JSON：{"query": "关键词"}\n\n'
+                f"{content[:6000]}",
+                llm=get_llm(),
+                retries=0,
+            )
+            if response and response.get("query"):
+                query = str(response["query"]).strip()[:200]
+        except Exception as exc:
+            logger.warning("搜索关键词提炼失败: %s", exc)
     if not query:
         return {"supplementary_info": ""}
     results = search_web(query)
@@ -143,196 +187,39 @@ def web_search_node(state: AgentState) -> dict:
 
 
 def generate_graph_node(state: AgentState) -> dict:
-    """脉络图生成节点：调用 LLM 生成 Mermaid + Markdown。"""
-    content = state.get("parsed_content", "")
-    supplementary = state.get("supplementary_info", "")
-    if not content:
-        return {"graph_mermaid": "", "graph_markdown": "", "error": "没有可解析的内容"}
-    if supplementary:
-        content = f"{content}\n\n## 联网搜索补充信息\n{supplementary}"
-    tier = classify_content(content)
-    output_format = state.get("output_format", "both")
-    if tier in ("M", "L"):
-        llm = _get_llm() if config.DEEPSEEK_API_KEY else None
-        if tier == "M":
-            result = map_reduce(content, llm=llm)
-            mermaid = result["mermaid"]
-            markdown = result["markdown"]
-            if output_format == "mermaid":
-                markdown = ""
-            elif output_format == "markdown":
-                mermaid = ""
-            return {
-                "graph_mermaid": mermaid,
-                "graph_markdown": markdown,
-                "node_payloads": json.dumps(
-                    result.get("node_payloads", []), ensure_ascii=False
-                ),
-                "long_text_report": result["report"],
-                "long_text_tier": tier,
-                "long_text_chunks": result.get("chunks", []),
-                "chapter_payloads": [],
-                "long_text_chapter_graph_ids": [],
-            }
-        result = prepare_book_payload(
-            content,
-            llm=llm,
-            selected_indices=state.get("selected_chapters") or None,
-        )
-        mermaid = result["mermaid"]
-        markdown = result["markdown"]
-        if output_format == "mermaid":
-            markdown = ""
-        elif output_format == "markdown":
-            mermaid = ""
-        return {
-            "graph_mermaid": mermaid,
-            "graph_markdown": markdown,
-            "node_payloads": "",
-            "long_text_report": result["report"],
-            "long_text_tier": tier,
-            "long_text_chunks": [],
-            "chapter_payloads": result.get("chapter_payloads", []),
-            "long_text_chapter_graph_ids": [],
-        }
-    prompt = GRAPH_GEN_PROMPT.replace("{content}", content)
-    llm = _get_llm()
-    response = llm.invoke([HumanMessage(content=prompt)])
-    text = response.content if hasattr(response, "content") else str(response)
-    mermaid = ""
-    markdown = ""
-    mermaid_match = re.search(r"```mermaid\s*\n(.*?)```", text, re.DOTALL)
-    if mermaid_match:
-        mermaid = mermaid_match.group(1).strip()
-    md_match = re.search(r"【Markdown大纲】:\s*\n(.*?)(?=【|\Z)", text, re.DOTALL)
-    if md_match:
-        markdown = md_match.group(1).strip()
-    elif not mermaid:
-        markdown = text
-    node_payloads = ""
-    json_match = re.search(r"【节点数据】:\s*\n```(?:json)?\s*\n(\[.*?\])\s*```", text, re.DOTALL)
-    if json_match:
-        try:
-            payloads = json.loads(json_match.group(1))
-            if isinstance(payloads, list) and payloads:
-                node_payloads = json.dumps(payloads, ensure_ascii=False)
-        except Exception:
-            node_payloads = ""
-    if output_format == "mermaid":
-        markdown = ""
-    elif output_format == "markdown":
-        mermaid = ""
-    return {
-        "graph_mermaid": mermaid,
-        "graph_markdown": markdown,
-        "node_payloads": node_payloads,
-    }
+    """确定性生成节点（文件 / URL 路径）：生成脉络图内容（不落库）。"""
+    fields = generate_graph_fields(
+        state.get("parsed_content", ""),
+        output_format=state.get("output_format", "both"),
+        supplementary_info=state.get("supplementary_info", ""),
+        selected_chapters=state.get("selected_chapters") or None,
+    )
+    if fields.get("error"):
+        return {"graph_mermaid": "", "graph_markdown": "", "error": fields["error"]}
+    return fields
 
 
 def save_graph_node(state: AgentState) -> dict:
-    """保存脉络图到数据库。"""
+    """确定性保存节点（文件 / URL 路径）：把生成内容落库。"""
     mermaid = state.get("graph_mermaid", "")
     markdown = state.get("graph_markdown", "")
-    content = state.get("parsed_content", "")
-    input_type = state.get("input_type", "text")
-    source_name = state.get("source_name", "")
     if not mermaid and not markdown:
         return {}
-    title_text = source_name or content[:50].replace("\n", " ").strip()
-    graph_type = "auto"
-    if mermaid:
-        if "flowchart" in mermaid.lower():
-            graph_type = "mermaid_flow"
-        elif "mindmap" in mermaid.lower():
-            graph_type = "mermaid_mindmap"
-        else:
-            graph_type = "mermaid_tree"
-    else:
-        graph_type = "markdown"
-    try:
-        graph_id = tool_create_graph.invoke({
-            "title": title_text,
-            "description": f"由 Agent 自动生成的脉络图 - {input_type}",
-            "graph_type": graph_type,
-            "mermaid_code": mermaid,
-            "markdown_outline": markdown,
-            "raw_content": content,
-            "source_type": input_type,
-            "source_name": source_name,
-        })
-    except Exception as e:
-        return {"error": f"保存脉络图失败: {e}"}
-    content = state.get("parsed_content", "")
-    chunks = state.get("long_text_chunks") or []
-    if not chunks and state.get("long_text_tier") != "L":
-        chunk_items = chunk_content(content or "")
-        vectors = embed_texts([c["text"] for c in chunk_items])
-        for chunk, vector in zip(chunk_items, vectors):
-            chunk["embedding"] = vector
-        chunks = chunk_items
-    try:
-        if chunks:
-            save_content_chunks(graph_id, chunks)
-    except Exception:
-        pass
-    payloads = []
-    try:
-        raw_payloads = state.get("node_payloads", "")
-        if raw_payloads:
-            parsed = json.loads(raw_payloads)
-            if isinstance(parsed, list):
-                payloads = parsed
-    except Exception:
-        payloads = []
-    try:
-        if payloads:
-            for index, node in enumerate(payloads):
-                repo_add_node(
-                    graph_id,
-                    label=str(node.get("label") or "").strip(),
-                    note=str(node.get("note") or "").strip(),
-                    node_type=str(node.get("node_type") or "concept"),
-                    parent_id=(node.get("parent_id") or None),
-                    related_nodes=node.get("related_nodes") or [],
-                    order_index=int(node.get("order_index") or index),
-                    created_by="agent",
-                    node_id=str(node.get("id") or ""),
-                )
-        else:
-            for node in parse_graph_structure(mermaid, markdown):
-                repo_add_node(
-                    graph_id,
-                    label=node["label"],
-                    parent_id=node["parent_id"],
-                    related_nodes=node["related_nodes"],
-                    order_index=node["order_index"],
-                    created_by="agent",
-                    node_id=node["id"],
-                )
-    except Exception:
-        pass
-    chapter_ids: list[str] = []
-    if state.get("long_text_tier") == "L":
-        try:
-            subgraphs = create_book_subgraphs(
-                graph_id,
-                state.get("chapter_payloads") or [],
-            )
-            chapter_ids = [item["graph_id"] for item in subgraphs]
-        except Exception as exc:
-            return {
-                "current_graph_id": graph_id,
-                "long_text_chapter_graph_ids": [],
-                "error": f"章节子图生成失败: {exc}",
-            }
-    return {
-        "current_graph_id": graph_id,
-        "long_text_chapter_graph_ids": chapter_ids,
-    }
+    return save_generated_graph(
+        content=state.get("parsed_content", ""),
+        input_type=state.get("input_type", "text"),
+        source_name=state.get("source_name", ""),
+        graph_mermaid=mermaid,
+        graph_markdown=markdown,
+        node_payloads=state.get("node_payloads", ""),
+        long_text_tier=state.get("long_text_tier", ""),
+        long_text_chunks=state.get("long_text_chunks") or [],
+        chapter_payloads=state.get("chapter_payloads") or [],
+    )
 
 
 def align_concepts_node(state: AgentState) -> dict:
-    """Align newly saved graph nodes into the global concept layer."""
+    """把新保存的脉络图节点对齐到全局概念层。"""
     graph_id = state.get("current_graph_id", "")
     if not graph_id:
         return {"concept_report": {}}
@@ -341,9 +228,7 @@ def align_concepts_node(state: AgentState) -> dict:
         and config.CONCEPT_LLM_DISAMBIGUATION
         and config.DEEPSEEK_API_KEY
     )
-    graph_ids = [graph_id] + list(
-        state.get("long_text_chapter_graph_ids") or []
-    )
+    graph_ids = [graph_id] + list(state.get("long_text_chapter_graph_ids") or [])
     merged = {
         "graph_id": graph_id,
         "aligned_mentions": 0,
@@ -355,18 +240,17 @@ def align_concepts_node(state: AgentState) -> dict:
     }
     try:
         for gid in graph_ids:
-            result = align_graph_nodes(
-                gid,
-                llm=_get_llm() if use_llm else None,
-            )
+            result = align_graph_nodes(gid, llm=get_llm() if use_llm else None)
             merged["aligned_mentions"] += result.aligned
             merged["new_concepts"].extend(result.new_concepts)
             merged["reinforced_concepts"].extend(result.reinforced)
             merged["new_links"].extend(result.new_links)
             merged["pending_links"] += result.pending_links
             merged["errors"].extend(result.errors)
+        logger.info("align_concepts graph=%s aligned=%d", graph_id, merged["aligned_mentions"])
         return {"concept_report": merged}
     except Exception as exc:
+        logger.exception("概念对齐失败: %s", exc)
         return {"concept_report": {**merged, "error": str(exc)}}
 
 
@@ -375,33 +259,22 @@ def list_graphs_node(state: AgentState) -> dict:
     try:
         result = tool_list_graphs.invoke({"limit": 20})
         return {"parsed_content": result}
-    except Exception as e:
-        return {"error": str(e)}
+    except Exception as exc:
+        logger.exception("列出脉络图失败: %s", exc)
+        return {"error": str(exc)}
 
 
 def search_graphs_node(state: AgentState) -> dict:
     """搜索脉络图。"""
-    user_input = state.get("user_input", "")
-    query = _strip_prefix(user_input, (
+    query = _strip_prefix(state.get("user_input", ""), (
         "search ", "搜索 ", "查找 ", "/search ", "回顾 ", "复习 ", "检索 ",
     ))
     try:
         result = tool_search_graphs.invoke({"query": query})
         return {"parsed_content": result}
-    except Exception as e:
-        return {"error": str(e)}
-
-
-def chat_node(state: AgentState) -> dict:
-    """闲聊 / 帮助节点。"""
-    llm = _get_llm()
-    messages = [SystemMessage(content=SYSTEM_PROMPT)]
-    history = state.get("messages", [])
-    if history:
-        messages.extend(list(history))
-    messages.append(HumanMessage(content=state.get("user_input", "")))
-    response = llm.invoke(messages)
-    return {"messages": [response]}
+    except Exception as exc:
+        logger.exception("搜索脉络图失败: %s", exc)
+        return {"error": str(exc)}
 
 
 _MANAGE_PATTERNS = [
@@ -463,59 +336,38 @@ def manage_graph_node(state: AgentState) -> dict:
             )}
         if command == "delete_graph":
             return {"parsed_content": tool_delete_graph.invoke({"graph_id": args[0]})}
-    except Exception as e:
-        return {"parsed_content": "", "error": str(e)}
+    except Exception as exc:
+        logger.exception("管理命令执行失败: %s", exc)
+        return {"parsed_content": "", "error": str(exc)}
     return {"parsed_content": "", "error": "未知的管理命令错误"}
 
 
 def get_graph_node(state: AgentState) -> dict:
     """打开指定脉络图，展示图信息与全部节点。"""
-    user_input = state.get("user_input", "").strip()
-    graph_id = _strip_prefix(user_input, ("/open ", "打开 ", "查看脉络 ", "get graph "))
+    graph_id = _strip_prefix(state.get("user_input", ""), ("/open ", "打开 ", "查看脉络 ", "get graph "))
     try:
         return {"parsed_content": tool_get_graph.invoke({"graph_id": graph_id})}
-    except Exception as e:
-        return {"parsed_content": "", "error": str(e)}
+    except Exception as exc:
+        logger.exception("打开脉络图失败: %s", exc)
+        return {"parsed_content": "", "error": str(exc)}
 
 
-def _extract_json_object(text: str) -> dict | None:
-    try:
-        return json.loads(text)
-    except Exception:
-        pass
-    m = re.search(r"```(?:json)?\s*\n(\{.*?\})\s*```", text, re.DOTALL)
-    if m:
-        try:
-            return json.loads(m.group(1))
-        except Exception:
-            pass
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end > start:
-        try:
-            return json.loads(text[start:end + 1])
-        except Exception:
-            pass
-    return None
-
-
-def summarize_memory_node(state: AgentState) -> dict:
-    """把本次生成的脉络总结写入长期记忆 memory_snapshots。"""
+def persist_graph_memory_node(state: AgentState) -> dict:
+    """把本次生成的脉络内容总结写入长期记忆 memory_snapshots（持久化）。"""
     graph_id = state.get("current_graph_id", "")
     if not graph_id:
         return {}
     source = state.get("graph_markdown") or state.get("parsed_content", "")
     if not source:
         return {}
-    prompt = MEMORY_SUMMARY_PROMPT.replace("{content}", source[:config.MAX_CONTENT_LENGTH])
+    prompt = MEMORY_SUMMARY_PROMPT.replace(
+        "{content}", source[: config.MAX_CONTENT_LENGTH]
+    )
     data = None
     try:
-        llm = _get_llm()
-        response = llm.invoke([HumanMessage(content=prompt)])
-        text = response.content if hasattr(response, "content") else str(response)
-        data = _extract_json_object(text)
-    except Exception:
-        pass
+        data = invoke_structured(prompt, retries=1)
+    except Exception as exc:
+        logger.warning("记忆摘要生成失败: %s", exc)
     if data and isinstance(data, dict) and data.get("summary"):
         summary = str(data["summary"]).strip()
         key_points = [str(k).strip() for k in data.get("key_points", []) if str(k).strip()]
@@ -523,4 +375,5 @@ def summarize_memory_node(state: AgentState) -> dict:
         summary = (source.strip().splitlines() or ["脉络图摘要"])[0][:80]
         key_points = []
     snap_id = save_memory_snapshot(graph_id, summary, key_points)
+    logger.info("memory snapshot saved graph=%s snap=%s", graph_id, snap_id)
     return {"memory_snapshot_id": snap_id}

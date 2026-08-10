@@ -25,6 +25,12 @@ class Config:
     DATABASE_PATH: str = str(PROJECT_ROOT / "data" / "learning_agent.db")
 
     MAX_CONTENT_LENGTH: int = int(os.getenv("MAX_CONTENT_LENGTH", "80000"))
+    # ReAct 代理相关
+    REACT_MAX_ITERATIONS: int = int(os.getenv("REACT_MAX_ITERATIONS", "8"))
+    LLM_MAX_CONCURRENCY: int = int(os.getenv("LLM_MAX_CONCURRENCY", "4"))
+    CONVERSATION_TRIM_THRESHOLD: int = int(
+        os.getenv("CONVERSATION_TRIM_THRESHOLD", "20")
+    )
     SINGLE_LLM_CHUNK_LIMIT: int = int(os.getenv("SINGLE_LLM_CHUNK_LIMIT", "20000"))
     LONG_TEXT_THRESHOLD: int = int(os.getenv("LONG_TEXT_THRESHOLD", "30000"))
     BOOK_TEXT_THRESHOLD: int = int(os.getenv("BOOK_TEXT_THRESHOLD", "150000"))

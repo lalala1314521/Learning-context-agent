@@ -11,6 +11,8 @@ class GenerateRequest(BaseModel):
     web_search_enabled: bool = False
     auto_link: bool = True
     selected_chapters: list[int] = []
+    # 可选会话 ID：用于多轮对话状态隔离（缺省时每次请求为独立会话）
+    thread_id: Optional[str] = None
 
 
 class NodeCreate(BaseModel):
@@ -74,6 +76,8 @@ class ReviewSessionAnswer(BaseModel):
 class AskRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
     use_database: bool = True
+    # 可选会话 ID：用于多轮对话状态隔离
+    thread_id: Optional[str] = None
 
 
 class ConceptLinkStatusUpdate(BaseModel):

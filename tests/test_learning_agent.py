@@ -9,8 +9,10 @@ from unittest import mock
 from app.config import config
 from app.graph.builder import build_graph
 from app.graph.mermaid_parser import parse_graph_structure
+from app.graph.state import build_initial_state
 from app.memory.database import init_db
 from app.memory import repository
+from langchain_core.messages import AIMessage
 
 
 class TempDbTestCase(unittest.TestCase):
@@ -108,6 +110,8 @@ class _FakeResponse:
 
 
 class _FakeLLM:
+    """按序返回固定文本的生成 LLM（用于确定性生成 / 结构化输出）。"""
+
     def __init__(self, contents):
         self._contents = list(contents)
 
@@ -115,29 +119,31 @@ class _FakeLLM:
         return _FakeResponse(self._contents.pop(0))
 
 
-def _initial_state(user_input: str, **overrides) -> dict:
-    state = {
-        "messages": [],
-        "user_input": user_input,
-        "input_type": "text",
-        "parsed_content": "",
-        "source_name": "",
-        "output_format": "both",
-        "web_search_enabled": False,
-        "supplementary_info": "",
-        "current_graph_id": "",
-        "graph_mermaid": "",
-        "graph_markdown": "",
-        "node_payloads": "",
-        "memory_snapshot_id": "",
-        "action": "",
-        "error": "",
-    }
-    state.update(overrides)
-    return state
+class _FakeReActLLM:
+    """ReAct 循环用 LLM：bind_tools 返回自身；invoke 按序返回 AIMessage。"""
+
+    def __init__(self, steps):
+        self._steps = list(steps)
+
+    def bind_tools(self, tools):
+        return self
+
+    def invoke(self, messages):
+        return self._steps.pop(0)
+
+
+def _tool_call_message(name: str, args: dict, call_id: str = "call_1") -> AIMessage:
+    return AIMessage(content="", tool_calls=[{
+        "name": name,
+        "args": args,
+        "id": call_id,
+        "type": "tool_call",
+    }])
 
 
 class GraphFlowTestCase(TempDbTestCase):
+    """ReAct 自由文本生成流程：agent 调用 tool_generate_graph → 工具桥接确定性管线。"""
+
     def test_structured_node_payloads(self):
         generate_output = """【Mermaid】:
 ```mermaid
@@ -155,15 +161,26 @@ A[机器学习] --> B[监督学习]
 ]
 ```
 """
-        fake_llm = _FakeLLM([
+        fake_agent = _FakeReActLLM([
+            _tool_call_message("tool_generate_graph", {
+                "content": "机器学习", "output_format": "both",
+            }),
+            AIMessage(content="已生成脉络图。"),
+        ])
+        fake_gen = _FakeLLM([
             generate_output,
             '{"summary": "机器学习摘要", "key_points": ["监督学习"]}',
         ])
         graph = build_graph()
-        with mock.patch("app.graph.nodes._get_llm", return_value=fake_llm):
-            result = graph.invoke(_initial_state("机器学习"), {
-                "configurable": {"thread_id": "payload-test"},
-            })
+        with mock.patch("app.graph.agent.get_llm", return_value=fake_agent), \
+                mock.patch("app.services.llm.get_llm", return_value=fake_gen), \
+                mock.patch("app.services.graph_generation.get_llm", return_value=fake_gen), \
+                mock.patch("app.graph.nodes._llm_intent", return_value=""):
+            result = graph.invoke(
+                build_initial_state("机器学习"),
+                {"configurable": {"thread_id": "payload-test"}},
+            )
+        self.assertFalse(result.get("error"))
         nodes = repository.get_nodes(result["current_graph_id"])
         by_label = {n["label"]: n for n in nodes}
         self.assertEqual(by_label["机器学习"]["note"], "从数据中学习规律的学科")
@@ -174,6 +191,9 @@ A[机器学习] --> B[监督学习]
             by_label["监督学习"]["parent_id"],
             by_label["机器学习"]["id"],
         )
+        # ReAct 轨迹已记录
+        self.assertTrue(result["intermediate_steps"])
+        self.assertEqual(result["intermediate_steps"][0]["tool"], "tool_generate_graph")
 
     def test_generate_save_nodes_and_memory(self):
         generate_output = """【图表类型】: graph TD
@@ -189,15 +209,25 @@ B --- D[关联概念]
 - 监督学习
   - 关联概念
 """
-        fake_llm = _FakeLLM([
+        fake_agent = _FakeReActLLM([
+            _tool_call_message("tool_generate_graph", {
+                "content": "请生成机器学习脉络", "output_format": "both",
+            }),
+            AIMessage(content="脉络图已保存。"),
+        ])
+        fake_gen = _FakeLLM([
             generate_output,
             '{"summary": "机器学习脉络摘要", "key_points": ["监督学习", "无监督学习"]}',
         ])
         graph = build_graph()
-        with mock.patch("app.graph.nodes._get_llm", return_value=fake_llm):
-            result = graph.invoke(_initial_state("请生成机器学习脉络"), {
-                "configurable": {"thread_id": "flow-test"},
-            })
+        with mock.patch("app.graph.agent.get_llm", return_value=fake_agent), \
+                mock.patch("app.services.llm.get_llm", return_value=fake_gen), \
+                mock.patch("app.services.graph_generation.get_llm", return_value=fake_gen), \
+                mock.patch("app.graph.nodes._llm_intent", return_value=""):
+            result = graph.invoke(
+                build_initial_state("请生成机器学习脉络"),
+                {"configurable": {"thread_id": "flow-test"}},
+            )
 
         self.assertFalse(result.get("error"))
         graph_id = result["current_graph_id"]
@@ -214,9 +244,10 @@ B --- D[关联概念]
     def test_manage_and_open_flow(self):
         graph_id = repository.create_graph(title="测试脉络", graph_type="markdown")
         graph = build_graph()
-        result = graph.invoke(_initial_state(f"添加节点 {graph_id} 新知识点"), {
-            "configurable": {"thread_id": "manage-test"},
-        })
+        result = graph.invoke(
+            build_initial_state(f"添加节点 {graph_id} 新知识点"),
+            {"configurable": {"thread_id": "manage-test"}},
+        )
         self.assertEqual(result["action"], "manage_graph")
         self.assertIn("已添加节点", result["parsed_content"])
 
@@ -224,14 +255,16 @@ B --- D[关联概念]
         self.assertEqual(len(nodes), 1)
         node_id = nodes[0]["id"]
 
-        result = graph.invoke(_initial_state(f"更新节点 {node_id} 修改后的知识点"), {
-            "configurable": {"thread_id": "manage-test"},
-        })
+        result = graph.invoke(
+            build_initial_state(f"更新节点 {node_id} 修改后的知识点"),
+            {"configurable": {"thread_id": "manage-test"}},
+        )
         self.assertIn("更新成功", result["parsed_content"])
 
-        result = graph.invoke(_initial_state(f"打开 {graph_id}"), {
-            "configurable": {"thread_id": "open-test"},
-        })
+        result = graph.invoke(
+            build_initial_state(f"打开 {graph_id}"),
+            {"configurable": {"thread_id": "open-test"}},
+        )
         self.assertEqual(result["action"], "get_graph")
         self.assertIn("修改后的知识点", result["parsed_content"])
 
@@ -247,15 +280,25 @@ mindmap
 # 深度学习
 - 监督学习
 """
-        fake_llm = _FakeLLM([
+        fake_agent = _FakeReActLLM([
+            _tool_call_message("tool_generate_graph", {
+                "content": "只要 Mermaid", "output_format": "mermaid",
+            }),
+            AIMessage(content="已生成 Mermaid 脉络图。"),
+        ])
+        fake_gen = _FakeLLM([
             generate_output,
             '{"summary": "深度学习摘要", "key_points": ["监督学习"]}',
         ])
         graph = build_graph()
-        with mock.patch("app.graph.nodes._get_llm", return_value=fake_llm):
-            result = graph.invoke(_initial_state("只要 Mermaid", output_format="mermaid"), {
-                "configurable": {"thread_id": "format-test"},
-            })
+        with mock.patch("app.graph.agent.get_llm", return_value=fake_agent), \
+                mock.patch("app.services.llm.get_llm", return_value=fake_gen), \
+                mock.patch("app.services.graph_generation.get_llm", return_value=fake_gen), \
+                mock.patch("app.graph.nodes._llm_intent", return_value=""):
+            result = graph.invoke(
+                build_initial_state("只要 Mermaid", output_format="mermaid"),
+                {"configurable": {"thread_id": "format-test"}},
+            )
         self.assertTrue(result["graph_mermaid"])
         self.assertEqual(result["graph_markdown"], "")
         stored = repository.get_graph(result["current_graph_id"])
@@ -271,15 +314,17 @@ mindmap
         self.addCleanup(os.remove, path1)
         self.addCleanup(os.remove, path2)
 
-        fake_llm = _FakeLLM([
+        fake_gen = _FakeLLM([
             "【Mermaid】:\n```mermaid\ngraph TD\nA[内容]\n```\n【Markdown大纲】:\n# 内容\n- 要点\n",
             '{"summary": "批量文件摘要", "key_points": ["监督学习"]}',
         ])
         graph = build_graph()
-        with mock.patch("app.graph.nodes._get_llm", return_value=fake_llm):
-            result = graph.invoke(_initial_state(f"files:{path1};{path2}"), {
-                "configurable": {"thread_id": "batch-test"},
-            })
+        with mock.patch("app.services.llm.get_llm", return_value=fake_gen), \
+                mock.patch("app.services.graph_generation.get_llm", return_value=fake_gen):
+            result = graph.invoke(
+                build_initial_state(f"files:{path1};{path2}"),
+                {"configurable": {"thread_id": "batch-test"}},
+            )
         self.assertFalse(result.get("error"))
         self.assertEqual(result["parsed_content"].count("### 文件:"), 2)
         stored = repository.get_graph(result["current_graph_id"])
@@ -292,9 +337,10 @@ mindmap
             markdown_outline="# 线性代数\n- 矩阵",
         )
         graph = build_graph()
-        result = graph.invoke(_initial_state("回顾 线性代数"), {
-            "configurable": {"thread_id": "review-test"},
-        })
+        result = graph.invoke(
+            build_initial_state("回顾 线性代数"),
+            {"configurable": {"thread_id": "review-test"}},
+        )
         self.assertEqual(result["action"], "search_graphs")
         self.assertIn("线性代数", result["parsed_content"])
 
