@@ -86,6 +86,18 @@ token 消耗提示。上传已增加魔数校验，URL 抓取会拦截内网地�
 相关 API：`/api/v1/review/brief`、`/api/v1/review/session`、
 `/api/v1/concepts/{id}/curve`。
 
+## 学习伙伴进阶能力
+
+- 学习路径：`GET /api/v1/learning-path?target=...` 从 `depends` / `extends`
+  依赖边反向拓扑，标注每个前置概念的掌握状态。
+- 知识周报：`GET /api/v1/weekly-report` 汇总本周新增概念、连接、掌握度 Top5
+  与下周复习压力。
+- Obsidian 导入：`POST /api/v1/sources/import-vault` 批量导入 Markdown vault。
+- 视频字幕：`POST /api/v1/sources/video-subtitle` 支持字幕文件 URL 与 YouTube
+  转录，`srt/vtt` 也可直接上传。
+- Anki 导出：`GET /api/v1/export/anki.apkg`，需要先执行 `uv sync --extra v2`。
+- 成就体系：`GET /api/v1/achievements` 提供里程碑解锁状态。
+
 ## 常用命令
 
 | 输入 | 说明 |

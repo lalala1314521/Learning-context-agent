@@ -983,3 +983,35 @@ html[data-theme="dark"] .review-brief {
   background: rgba(245, 158, 11, 0.14);
   color: var(--text-primary);
 }
+
+.achievement-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.achievement {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.45);
+  color: var(--text-secondary);
+}
+
+.achievement b {
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.achievement span {
+  font-size: 11px;
+}
+
+.achievement.unlocked {
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.08);
+}

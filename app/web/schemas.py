@@ -85,6 +85,15 @@ class ConceptMergeRequest(BaseModel):
     loser_id: str
 
 
+class VaultImportRequest(BaseModel):
+    path: str
+    limit: Optional[int] = None
+
+
+class VideoSubtitleRequest(BaseModel):
+    url: str
+
+
 class ApiResponse(BaseModel):
     ok: bool
     data: Any = None

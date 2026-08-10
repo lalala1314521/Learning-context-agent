@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, File, Form, Response, UploadFile
 
 from app.config import config
 from app.graph.mermaid_parser import parse_graph_structure
@@ -20,6 +20,8 @@ from app.web.schemas import (
     GraphUpdate,
     ConceptLinkStatusUpdate,
     ConceptMergeRequest,
+    VaultImportRequest,
+    VideoSubtitleRequest,
     NodeCreate,
     NodeUpdate,
     QuizCreate,
@@ -747,6 +749,70 @@ def concept_curve(concept_id: str):
         "concept": concept,
         "history": repository.list_review_history(concept_id),
     })
+
+
+@router.get("/learning-path")
+def learning_path(target: str = ""):
+    if not target.strip():
+        raise ApiError("需要提供目标概念")
+    from app.services.learning_path import build_learning_path, resolve_target
+    concept = resolve_target(target.strip())
+    if not concept:
+        raise ApiError("没有找到匹配的概念", status=404)
+    return ok({
+        "target": concept,
+        "path": build_learning_path(concept["id"]),
+    })
+
+
+@router.get("/weekly-report")
+def weekly_report():
+    from app.services.weekly_report import generate_weekly_report
+    return ok(generate_weekly_report())
+
+
+@router.get("/achievements")
+def achievements():
+    from app.services.achievements import get_achievements
+    return ok(get_achievements())
+
+
+@router.post("/sources/import-vault")
+def import_vault(payload: VaultImportRequest):
+    from app.tools.vault_importer import import_vault as run_import
+    try:
+        result = run_import(payload.path, limit=payload.limit)
+    except ValueError as exc:
+        raise ApiError(str(exc))
+    return ok(result)
+
+
+@router.post("/sources/video-subtitle")
+def video_subtitle(payload: VideoSubtitleRequest):
+    from app.services.chunking import estimate_long_text
+    from app.tools.video_subtitles import fetch_video_subtitles
+    result = fetch_video_subtitles(payload.url)
+    if result.get("error"):
+        raise ApiError(result["error"], status=400)
+    return ok({
+        "source_name": result.get("title") or payload.url,
+        "content": result.get("content", ""),
+        "preview": estimate_long_text(result.get("content", "")),
+    })
+
+
+@router.get("/export/anki.apkg")
+def export_anki():
+    from app.services.anki_export import build_apkg_bytes
+    try:
+        content = build_apkg_bytes()
+    except RuntimeError as exc:
+        raise ApiError(str(exc), status=501)
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": "attachment; filename=learning-context.apkg"},
+    )
 
 
 @router.post("/ask")

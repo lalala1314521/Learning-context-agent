@@ -8,6 +8,7 @@ let currentIndex = 0;
 export function initReviewPanel() {
   document.getElementById("startReviewBtn").addEventListener("click", startSession);
   document.getElementById("briefBtn").addEventListener("click", showBrief);
+  document.getElementById("weeklyBtn").addEventListener("click", showWeekly);
   refreshReview();
 }
 
@@ -119,6 +120,41 @@ async function showBrief() {
   } catch (error) {
     toast(error.message, true);
     setStatus("简报生成失败", "error");
+  }
+}
+
+async function showWeekly() {
+  setStatus("正在生成知识周报...", "busy");
+  try {
+    const [report, achievements] = await Promise.all([
+      api("/weekly-report"),
+      api("/achievements"),
+    ]);
+    const el = document.getElementById("reviewList");
+    el.innerHTML = `
+      <div class="review-brief">
+        <div class="brief-title">本周知识网络 · ${esc(report.week_end)}</div>
+        <div class="brief-narrative">
+          新增 ${report.new_concepts} 个概念、${report.new_links} 条连接；
+          当前共 ${report.total_concepts} 个概念，下周预计 ${report.next_week_review_pressure} 次复习。
+        </div>
+        <div class="brief-concepts">
+          ${(report.mastery_top5 || []).map((item) =>
+            `<span>${esc(item.label)} · ${item.retrievability ?? "未复习"}</span>`).join("")
+            || "暂无掌握度数据"}
+        </div>
+        <div class="achievement-grid">
+          ${(achievements || []).map((item) =>
+            `<div class="achievement ${item.unlocked ? "unlocked" : ""}">
+               <b>${esc(item.name)}</b>
+               <span>${item.unlocked ? "已解锁" : "未解锁"}</span>
+             </div>`).join("")}
+        </div>
+      </div>`;
+    setStatus("知识周报已生成");
+  } catch (error) {
+    toast(error.message, true);
+    setStatus("周报生成失败", "error");
   }
 }
 

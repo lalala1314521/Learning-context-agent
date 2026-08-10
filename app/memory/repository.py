@@ -646,6 +646,59 @@ def list_concepts(limit: int = 10000, include_embedding: bool = False) -> list[d
         conn.close()
 
 
+def search_concepts(query: str, limit: int = 20) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT c.id, c.canonical_label, c.summary, c.mention_count,
+                      c.created_at
+               FROM concepts c
+               LEFT JOIN concept_aliases a ON a.concept_id = c.id
+               WHERE c.canonical_label LIKE ? OR c.summary LIKE ? OR a.alias LIKE ?
+               GROUP BY c.id
+               ORDER BY c.mention_count DESC LIMIT ?""",
+            (f"%{query}%", f"%{query}%", f"%{query}%", limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def count_concepts_created_since(days: int = 7) -> int:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            """SELECT COUNT(*) AS count FROM concepts
+               WHERE created_at >= datetime('now', ?)""",
+            (f"-{days} days",),
+        ).fetchone()
+        return int(row["count"])
+    finally:
+        conn.close()
+
+
+def count_concept_links_created_since(days: int = 7) -> int:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            """SELECT COUNT(*) AS count FROM concept_links
+               WHERE created_at >= datetime('now', ?)""",
+            (f"-{days} days",),
+        ).fetchone()
+        return int(row["count"])
+    finally:
+        conn.close()
+
+
+def count_review_history() -> int:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT COUNT(*) AS count FROM review_history").fetchone()
+        return int(row["count"])
+    finally:
+        conn.close()
+
+
 def get_concept(concept_id: str) -> dict | None:
     conn = get_connection()
     try:

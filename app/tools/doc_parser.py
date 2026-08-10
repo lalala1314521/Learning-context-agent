@@ -41,6 +41,10 @@ def parse_document(file_path: str) -> dict:
             content = fp.read_text(encoding="utf-8")
             return {"title": title, "content": content, "file_type": suffix}
 
+        elif suffix in (".srt", ".vtt"):
+            content = _parse_subtitle(fp.read_text(encoding="utf-8"))
+            return {"title": title, "content": content, "file_type": suffix}
+
         elif suffix == ".pdf":
             return _parse_pdf(fp)
 
@@ -96,3 +100,17 @@ def _parse_ipynb(fp: Path) -> dict:
             lines.append(str(source))
     content = "\n".join(lines)
     return {"title": fp.stem, "content": content, "file_type": ".ipynb"}
+
+
+def _parse_subtitle(text: str) -> str:
+    lines = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.isdigit():
+            continue
+        if "-->" in stripped:
+            continue
+        if stripped.startswith(("WEBVTT", "Kind:", "Language:", "NOTE")):
+            continue
+        lines.append(stripped)
+    return "\n".join(lines)
