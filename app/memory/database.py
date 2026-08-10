@@ -6,12 +6,27 @@ from app.config import config
 from app.memory.models import DDL_STATEMENTS
 
 
+def _load_vector_extension(conn: sqlite3.Connection) -> bool:
+    """Load sqlite-vec when available; returns whether it was enabled."""
+    try:
+        import sqlite_vec
+    except ImportError:
+        return False
+    try:
+        conn.enable_load_extension(True)
+        sqlite_vec.load(conn)
+        return True
+    except Exception:
+        return False
+
+
 def get_connection() -> sqlite3.Connection:
     Path(config.DATABASE_PATH).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(config.DATABASE_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    _load_vector_extension(conn)
     return conn
 
 
@@ -21,6 +36,9 @@ def init_db() -> None:
         for stmt in DDL_STATEMENTS:
             conn.execute(stmt)
         _ensure_column(conn, "graph_nodes", "node_type", "TEXT DEFAULT 'concept'")
+        _ensure_column(conn, "graph_nodes", "concept_id", "TEXT")
+        _ensure_column(conn, "knowledge_graphs", "parent_graph_id", "TEXT")
+        _ensure_column(conn, "quiz_questions", "concept_id", "TEXT")
         conn.commit()
     finally:
         conn.close()

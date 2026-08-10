@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime
 
 from app.memory.database import get_connection
+from app.memory.embeddings import encode_embedding
 
 
 def _json_list(value: str | None) -> list:
@@ -251,7 +252,10 @@ def get_outline(graph_id: str) -> list[dict]:
 
 
 def update_node(node_id: str, **kwargs) -> bool:
-    allowed = {"label", "note", "node_type", "related_nodes", "order_index"}
+    allowed = {
+        "label", "note", "node_type", "related_nodes", "order_index",
+        "concept_id",
+    }
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:
         return False
@@ -523,5 +527,411 @@ def get_review_stats(graph_id: str | None = None) -> dict:
             "due": due["count"],
             "total": sum(stats.values()),
         }
+    finally:
+        conn.close()
+
+
+def create_concept(
+    canonical_label: str,
+    summary: str = "",
+    embedding: list[float] | None = None,
+    domain_id: str | None = None,
+    concept_id: str | None = None,
+) -> str:
+    label = (canonical_label or "").strip()
+    if not label:
+        raise ValueError("concept label cannot be empty")
+    conn = get_connection()
+    try:
+        existing = conn.execute(
+            "SELECT id FROM concepts WHERE canonical_label = ?", (label,)
+        ).fetchone()
+        if existing:
+            return existing["id"]
+        concept_id = concept_id or uuid.uuid4().hex[:12]
+        conn.execute(
+            """INSERT INTO concepts
+               (id, canonical_label, summary, domain_id, embedding, mention_count)
+               VALUES (?, ?, ?, ?, ?, 1)""",
+            (
+                concept_id, label, summary, domain_id,
+                encode_embedding(embedding or []),
+            ),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO concept_aliases (id, concept_id, alias) VALUES (?, ?, ?)",
+            (uuid.uuid4().hex[:12], concept_id, label),
+        )
+        conn.commit()
+        return concept_id
+    finally:
+        conn.close()
+
+
+def find_concept_by_alias(alias: str) -> dict | None:
+    alias = (alias or "").strip()
+    if not alias:
+        return None
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            """SELECT c.* FROM concepts c
+               LEFT JOIN concept_aliases a ON a.concept_id = c.id
+               WHERE c.canonical_label = ? COLLATE NOCASE
+                  OR a.alias = ? COLLATE NOCASE
+               ORDER BY c.mention_count DESC LIMIT 1""",
+            (alias, alias),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def list_concepts(limit: int = 10000, include_embedding: bool = False) -> list[dict]:
+    columns = "*" if include_embedding else (
+        "id, canonical_label, summary, domain_id, mention_count, created_at, updated_at"
+    )
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            f"SELECT {columns} FROM concepts ORDER BY mention_count DESC, updated_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_concept(concept_id: str) -> dict | None:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM concepts WHERE id = ?", (concept_id,)
+        ).fetchone()
+        if not row:
+            return None
+        concept = dict(row)
+        aliases = conn.execute(
+            "SELECT alias FROM concept_aliases WHERE concept_id = ? ORDER BY alias",
+            (concept_id,),
+        ).fetchall()
+        concept["aliases"] = [a["alias"] for a in aliases]
+        return concept
+    finally:
+        conn.close()
+
+
+def update_concept(concept_id: str, **kwargs) -> bool:
+    allowed = {"canonical_label", "summary", "domain_id", "embedding", "mention_count"}
+    updates = {k: v for k, v in kwargs.items() if k in allowed}
+    if not updates:
+        return False
+    if "embedding" in updates and updates["embedding"] is not None:
+        updates["embedding"] = encode_embedding(updates["embedding"])
+    updates["updated_at"] = datetime.now().isoformat()
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    conn = get_connection()
+    try:
+        conn.execute(
+            f"UPDATE concepts SET {set_clause} WHERE id = ?",
+            (*updates.values(), concept_id),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def add_concept_alias(concept_id: str, alias: str) -> str:
+    alias = (alias or "").strip()
+    alias_id = uuid.uuid4().hex[:12]
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO concept_aliases (id, concept_id, alias) VALUES (?, ?, ?)",
+            (alias_id, concept_id, alias),
+        )
+        conn.commit()
+        return alias_id
+    finally:
+        conn.close()
+
+
+def create_concept_link(
+    from_concept: str,
+    to_concept: str,
+    relation_type: str = "related",
+    confidence: float = 0.6,
+    evidence: str = "",
+    source: str = "llm",
+    status: str = "pending",
+) -> str:
+    if from_concept == to_concept:
+        return ""
+    conn = get_connection()
+    try:
+        existing = conn.execute(
+            """SELECT id FROM concept_links
+               WHERE from_concept = ? AND to_concept = ? AND relation_type = ?""",
+            (from_concept, to_concept, relation_type),
+        ).fetchone()
+        if existing:
+            return existing["id"]
+        link_id = uuid.uuid4().hex[:12]
+        conn.execute(
+            """INSERT INTO concept_links
+               (id, from_concept, to_concept, relation_type, confidence,
+                evidence, source, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                link_id, from_concept, to_concept, relation_type,
+                float(confidence), evidence, source, status,
+            ),
+        )
+        conn.commit()
+        return link_id
+    finally:
+        conn.close()
+
+
+def list_concept_links(
+    limit: int = 1000,
+    status: str | None = None,
+    min_confidence: float = 0.0,
+) -> list[dict]:
+    sql = """
+        SELECT cl.*, c1.canonical_label AS from_label,
+               c2.canonical_label AS to_label
+        FROM concept_links cl
+        JOIN concepts c1 ON c1.id = cl.from_concept
+        JOIN concepts c2 ON c2.id = cl.to_concept
+        WHERE cl.confidence >= ?
+    """
+    args: list = [min_confidence]
+    if status:
+        sql += " AND cl.status = ?"
+        args.append(status)
+    sql += " ORDER BY cl.confidence DESC, cl.created_at DESC LIMIT ?"
+    args.append(limit)
+    conn = get_connection()
+    try:
+        rows = conn.execute(sql, args).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def update_concept_link_status(link_id: str, status: str) -> bool:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE concept_links SET status = ? WHERE id = ?",
+            (status, link_id),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def record_concept_merge(winner_id: str, loser_id: str) -> str:
+    merge_id = uuid.uuid4().hex[:12]
+    conn = get_connection()
+    try:
+        conn.execute(
+            """INSERT INTO concept_merges (id, winner_id, loser_id)
+               VALUES (?, ?, ?)""",
+            (merge_id, winner_id, loser_id),
+        )
+        conn.commit()
+        return merge_id
+    finally:
+        conn.close()
+
+
+def create_domain(name: str, color: str = "#4f8ef7") -> str:
+    conn = get_connection()
+    try:
+        existing = conn.execute(
+            "SELECT id FROM domains WHERE name = ?", (name,)
+        ).fetchone()
+        if existing:
+            return existing["id"]
+        domain_id = uuid.uuid4().hex[:12]
+        conn.execute(
+            "INSERT INTO domains (id, name, color, concept_count) VALUES (?, ?, ?, 0)",
+            (domain_id, name, color),
+        )
+        conn.commit()
+        return domain_id
+    finally:
+        conn.close()
+
+
+def list_domains() -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM domains ORDER BY concept_count DESC, created_at ASC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_concepts_for_graph(graph_id: str) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT DISTINCT c.*, g.title AS source_graph_title
+               FROM graph_nodes n
+               JOIN concepts c ON c.id = n.concept_id
+               JOIN knowledge_graphs g ON g.id = n.graph_id
+               WHERE n.graph_id = ?""",
+            (graph_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def list_concept_mentions(concept_id: str, limit: int = 100) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT n.id AS node_id, n.label, n.note, n.graph_id,
+                      g.title AS graph_title, g.source_name
+               FROM graph_nodes n
+               JOIN knowledge_graphs g ON g.id = n.graph_id
+               WHERE n.concept_id = ?
+               ORDER BY n.created_at DESC LIMIT ?""",
+            (concept_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def list_concept_links_for_concept(concept_id: str) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT cl.*, c1.canonical_label AS from_label,
+                      c2.canonical_label AS to_label
+               FROM concept_links cl
+               JOIN concepts c1 ON c1.id = cl.from_concept
+               JOIN concepts c2 ON c2.id = cl.to_concept
+               WHERE cl.from_concept = ? OR cl.to_concept = ?
+               ORDER BY cl.confidence DESC""",
+            (concept_id, concept_id),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def merge_concepts(winner_id: str, loser_id: str) -> bool:
+    """Merge loser concept into winner and keep an audit record."""
+    if winner_id == loser_id:
+        return False
+    conn = get_connection()
+    try:
+        loser = conn.execute(
+            "SELECT * FROM concepts WHERE id = ?", (loser_id,)
+        ).fetchone()
+        winner = conn.execute(
+            "SELECT * FROM concepts WHERE id = ?", (winner_id,)
+        ).fetchone()
+        if not loser or not winner:
+            return False
+        mention_count = int(winner["mention_count"] or 0) + int(
+            loser["mention_count"] or 0
+        )
+        conn.execute(
+            "UPDATE graph_nodes SET concept_id = ? WHERE concept_id = ?",
+            (winner_id, loser_id),
+        )
+        conn.execute(
+            """UPDATE concept_aliases SET concept_id = ?
+               WHERE concept_id = ? AND alias NOT IN (
+                   SELECT alias FROM concept_aliases WHERE concept_id = ?
+               )""",
+            (winner_id, loser_id, winner_id),
+        )
+        for table in ("concept_links",):
+            for column in ("from_concept", "to_concept"):
+                rows = conn.execute(
+                    f"SELECT * FROM {table} WHERE {column} = ?", (loser_id,)
+                ).fetchall()
+                for row in rows:
+                    other = (
+                        row["to_concept"] if column == "from_concept"
+                        else row["from_concept"]
+                    )
+                    if other == winner_id:
+                        conn.execute(
+                            f"DELETE FROM {table} WHERE id = ?", (row["id"],)
+                        )
+                    else:
+                        conn.execute(
+                            f"""UPDATE {table} SET {column} = ?
+                                WHERE id = ?""",
+                            (winner_id, row["id"]),
+                        )
+        conn.execute(
+            """INSERT INTO concept_merges (id, winner_id, loser_id)
+               VALUES (?, ?, ?)""",
+            (uuid.uuid4().hex[:12], winner_id, loser_id),
+        )
+        conn.execute("DELETE FROM concepts WHERE id = ?", (loser_id,))
+        conn.execute(
+            "UPDATE concepts SET mention_count = ? WHERE id = ?",
+            (mention_count, winner_id),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def save_content_chunks(
+    graph_id: str,
+    chunks: list[dict],
+) -> int:
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM content_chunks WHERE graph_id = ?", (graph_id,))
+        for index, chunk in enumerate(chunks):
+            conn.execute(
+                """INSERT INTO content_chunks
+                   (id, graph_id, chunk_index, text, embedding, char_start, char_end)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    uuid.uuid4().hex[:12],
+                    graph_id,
+                    int(chunk.get("chunk_index", index)),
+                    chunk.get("text", ""),
+                    encode_embedding(chunk.get("embedding") or []),
+                    chunk.get("char_start"),
+                    chunk.get("char_end"),
+                ),
+            )
+        conn.commit()
+        return len(chunks)
+    finally:
+        conn.close()
+
+
+def list_content_chunks(graph_id: str, limit: int = 1000) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT id, graph_id, chunk_index, text, char_start, char_end
+               FROM content_chunks
+               WHERE graph_id = ?
+               ORDER BY chunk_index LIMIT ?""",
+            (graph_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()

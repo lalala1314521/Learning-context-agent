@@ -15,6 +15,8 @@ from app.web.schemas import (
     GenerateRequest,
     GraphLinkCreate,
     GraphUpdate,
+    ConceptLinkStatusUpdate,
+    ConceptMergeRequest,
     NodeCreate,
     NodeUpdate,
     QuizCreate,
@@ -96,6 +98,7 @@ def _initial_state(content: str, output_format: str, web_search: bool) -> dict:
         "graph_markdown": "",
         "node_payloads": "",
         "memory_snapshot_id": "",
+        "concept_report": {},
         "action": "",
         "error": "",
     }
@@ -212,7 +215,7 @@ def _ask_llm(question: str, context: str):
     llm = ChatDeepSeek(
         model=config.DEEPSEEK_CHAT_MODEL,
         api_key=config.DEEPSEEK_API_KEY,
-        api_base=config.DEEPSEEK_BASE_URL,
+        base_url=config.DEEPSEEK_BASE_URL,
         temperature=0.3,
     )
     response = llm.invoke([SystemMessage(content=system), HumanMessage(content=user)])
@@ -255,6 +258,8 @@ def generate_graph(payload: GenerateRequest):
         "mermaid": result.get("graph_mermaid", ""),
         "markdown": result.get("graph_markdown", ""),
         "memory_snapshot_id": result.get("memory_snapshot_id", ""),
+        "concept_report": result.get("concept_report") or {},
+        "concepts": repository.get_concepts_for_graph(graph_id) if graph_id else [],
         "nodes": nodes,
         "auto_links": auto_links,
     })
@@ -378,6 +383,70 @@ def delete_node(node_id: str):
 def list_memories(limit: int = 50):
     ensure_database()
     return ok(repository.get_memory_snapshots(limit=min(limit, 100)))
+
+
+@router.get("/concepts")
+def list_concepts(graph_id: str = "", limit: int = 200):
+    ensure_database()
+    if graph_id:
+        return ok(repository.get_concepts_for_graph(graph_id))
+    return ok(repository.list_concepts(limit=min(limit, 1000)))
+
+
+@router.post("/concepts/merge")
+def merge_concepts(payload: ConceptMergeRequest):
+    if not repository.merge_concepts(payload.winner_id, payload.loser_id):
+        raise ApiError("概念合并失败，请检查概念 ID", status=400)
+    return ok({"winner_id": payload.winner_id, "loser_id": payload.loser_id})
+
+
+@router.get("/concepts/{concept_id}")
+def get_concept(concept_id: str):
+    concept = repository.get_concept(concept_id)
+    if not concept:
+        raise ApiError("概念不存在", status=404)
+    return ok({
+        "concept": concept,
+        "mentions": repository.list_concept_mentions(concept_id),
+        "links": repository.list_concept_links_for_concept(concept_id),
+    })
+
+
+@router.get("/concept-links")
+def list_concept_links(
+    status: str = "",
+    min_confidence: float = 0.0,
+    limit: int = 200,
+):
+    return ok(repository.list_concept_links(
+        limit=min(limit, 1000),
+        status=status or None,
+        min_confidence=min_confidence,
+    ))
+
+
+@router.patch("/concept-links/{link_id}")
+def update_concept_link(link_id: str, payload: ConceptLinkStatusUpdate):
+    if not repository.update_concept_link_status(link_id, payload.status):
+        raise ApiError("概念链接不存在", status=404)
+    return ok({"id": link_id, "status": payload.status})
+
+
+@router.post("/graphs/{graph_id}/concepts/align")
+def align_graph(graph_id: str):
+    if not repository.get_graph(graph_id):
+        raise ApiError("脉络图不存在", status=404)
+    from app.services.concept_alignment import align_graph_nodes
+    result = align_graph_nodes(graph_id)
+    return ok(result.to_dict())
+
+
+@router.get("/chunks")
+def list_chunks(graph_id: str = "", limit: int = 500):
+    ensure_database()
+    if not graph_id:
+        return ok([])
+    return ok(repository.list_content_chunks(graph_id, limit=min(limit, 1000)))
 
 
 @router.get("/links")

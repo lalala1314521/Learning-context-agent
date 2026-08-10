@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class GenerateRequest(BaseModel):
-    content: str = Field(..., min_length=1, max_length=60000)
+    content: str = Field(..., min_length=1, max_length=500000)
     output_format: str = Field("both", pattern="^(auto|both|mermaid|markdown)$")
     web_search_enabled: bool = False
     auto_link: bool = True
@@ -60,6 +60,15 @@ class ReviewSubmit(BaseModel):
 class AskRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
     use_database: bool = True
+
+
+class ConceptLinkStatusUpdate(BaseModel):
+    status: str = Field(..., pattern="^(pending|confirmed|rejected)$")
+
+
+class ConceptMergeRequest(BaseModel):
+    winner_id: str
+    loser_id: str
 
 
 class ApiResponse(BaseModel):

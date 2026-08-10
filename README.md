@@ -37,6 +37,27 @@ uv run python -m app.web.server
 知识问答面板可检索已有脉络、节点和记忆后回答，并明确区分“已收录知识”与
 “知识库未直接覆盖”的内容，方便判断还缺什么。
 
+## v2 全局概念层
+
+`AGENT_DESIGN_V2.md` 引入三层知识模型：文档提及层、全局概念层与领域层。
+每次生成脉络后会自动执行概念对齐，重复概念合并为同一个全局实体，并生成
+跨文档概念边与「融会贯通报告」。
+
+本地嵌入默认使用确定性 n-gram 向量（无需下载模型）；安装
+`sentence-transformers` 与 `sqlite-vec` 后可切换到 BGE + 向量扩展：
+
+```bash
+uv sync --extra v2
+```
+
+存量数据迁移：
+
+```bash
+.venv\Scripts\python.exe scripts\migrate_concepts.py
+```
+
+相关 API：`/api/v1/concepts`、`/api/v1/concept-links`、`/api/v1/chunks`。
+
 ## 常用命令
 
 | 输入 | 说明 |

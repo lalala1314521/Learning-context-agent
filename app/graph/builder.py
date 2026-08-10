@@ -5,6 +5,7 @@ from app.graph.state import AgentState
 from app.graph.nodes import (
     router_node, parse_content_node, web_search_node,
     generate_graph_node, save_graph_node,
+    align_concepts_node,
     list_graphs_node, search_graphs_node, chat_node,
     manage_graph_node, get_graph_node, summarize_memory_node,
 )
@@ -47,6 +48,7 @@ def build_graph(checkpointer=None):
     builder.add_node("web_search", web_search_node)
     builder.add_node("generate_graph", generate_graph_node)
     builder.add_node("save_graph", save_graph_node)
+    builder.add_node("align_concepts", align_concepts_node)
     builder.add_node("list_graphs", list_graphs_node)
     builder.add_node("search_graphs", search_graphs_node)
     builder.add_node("get_graph", get_graph_node)
@@ -74,7 +76,8 @@ def build_graph(checkpointer=None):
         "save_graph": "save_graph",
         "chat": "chat",
     })
-    builder.add_edge("save_graph", "summarize_memory")
+    builder.add_edge("save_graph", "align_concepts")
+    builder.add_edge("align_concepts", "summarize_memory")
     builder.add_edge("summarize_memory", END)
     builder.add_edge("list_graphs", END)
     builder.add_edge("search_graphs", END)

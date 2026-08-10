@@ -19,5 +19,6 @@ class AgentState(TypedDict):
     graph_markdown: str
     node_payloads: str
     memory_snapshot_id: str
+    concept_report: dict
     action: str
     error: str

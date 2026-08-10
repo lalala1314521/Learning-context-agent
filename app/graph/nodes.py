@@ -6,6 +6,7 @@ from app.config import config
 from app.graph.mermaid_parser import parse_graph_structure
 from app.graph.state import AgentState
 from app.memory.repository import add_node as repo_add_node, save_memory_snapshot
+from app.services.concept_alignment import align_graph_nodes
 from app.prompts.system import SYSTEM_PROMPT
 from app.prompts.graph_gen import GRAPH_GEN_PROMPT, MEMORY_SUMMARY_PROMPT
 from app.tools.web_search import search_web
@@ -22,7 +23,7 @@ def _get_llm(model: str | None = None):
     return ChatDeepSeek(
         model=model or config.DEEPSEEK_CHAT_MODEL,
         api_key=config.DEEPSEEK_API_KEY,
-        api_base=config.DEEPSEEK_BASE_URL,
+        base_url=config.DEEPSEEK_BASE_URL,
         temperature=0.3,
     )
 
@@ -232,6 +233,26 @@ def save_graph_node(state: AgentState) -> dict:
     except Exception:
         pass
     return {"current_graph_id": graph_id}
+
+
+def align_concepts_node(state: AgentState) -> dict:
+    """Align newly saved graph nodes into the global concept layer."""
+    graph_id = state.get("current_graph_id", "")
+    if not graph_id:
+        return {"concept_report": {}}
+    use_llm = bool(
+        config.SEMANTIC_ALIGN_ENABLED
+        and config.CONCEPT_LLM_DISAMBIGUATION
+        and config.DEEPSEEK_API_KEY
+    )
+    try:
+        result = align_graph_nodes(
+            graph_id,
+            llm=_get_llm() if use_llm else None,
+        )
+        return {"concept_report": result.to_dict()}
+    except Exception as exc:
+        return {"concept_report": {"error": str(exc)}}
 
 
 def list_graphs_node(state: AgentState) -> dict:

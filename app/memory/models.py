@@ -32,6 +32,75 @@ DDL_STATEMENTS = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS concepts (
+        id              TEXT PRIMARY KEY,
+        canonical_label TEXT NOT NULL,
+        summary         TEXT,
+        domain_id       TEXT,
+        embedding       BLOB,
+        mention_count   INTEGER DEFAULT 0,
+        created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_concepts_canonical ON concepts(canonical_label)",
+    """
+    CREATE TABLE IF NOT EXISTS concept_aliases (
+        id         TEXT PRIMARY KEY,
+        concept_id TEXT NOT NULL REFERENCES concepts(id) ON DELETE CASCADE,
+        alias      TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(concept_id, alias)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_concept_aliases_alias ON concept_aliases(alias)",
+    """
+    CREATE TABLE IF NOT EXISTS concept_links (
+        id            TEXT PRIMARY KEY,
+        from_concept  TEXT NOT NULL REFERENCES concepts(id) ON DELETE CASCADE,
+        to_concept    TEXT NOT NULL REFERENCES concepts(id) ON DELETE CASCADE,
+        relation_type TEXT DEFAULT 'related',
+        confidence    REAL DEFAULT 0.6,
+        evidence      TEXT,
+        source        TEXT DEFAULT 'llm',
+        status        TEXT DEFAULT 'pending',
+        created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(from_concept, to_concept, relation_type)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_concept_links_from ON concept_links(from_concept)",
+    "CREATE INDEX IF NOT EXISTS idx_concept_links_to ON concept_links(to_concept)",
+    """
+    CREATE TABLE IF NOT EXISTS concept_merges (
+        id        TEXT PRIMARY KEY,
+        winner_id TEXT NOT NULL,
+        loser_id  TEXT NOT NULL,
+        merged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS domains (
+        id            TEXT PRIMARY KEY,
+        name          TEXT NOT NULL,
+        color         TEXT,
+        concept_count INTEGER DEFAULT 0,
+        created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS content_chunks (
+        id          TEXT PRIMARY KEY,
+        graph_id    TEXT NOT NULL REFERENCES knowledge_graphs(id) ON DELETE CASCADE,
+        chunk_index INTEGER NOT NULL,
+        text        TEXT NOT NULL,
+        embedding   BLOB,
+        char_start  INTEGER,
+        char_end    INTEGER,
+        created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_content_chunks_graph ON content_chunks(graph_id)",
+    """
     CREATE TABLE IF NOT EXISTS memory_snapshots (
         id         TEXT PRIMARY KEY,
         graph_id   TEXT REFERENCES knowledge_graphs(id) ON DELETE SET NULL,
