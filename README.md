@@ -58,6 +58,13 @@ uv sync --extra v2
 
 相关 API：`/api/v1/concepts`、`/api/v1/concept-links`、`/api/v1/chunks`。
 
+WebUI 默认首页已切换为全局知识星图：按领域着色、按连接度控制节点大小、
+按掌握度显示光晕，支持语义缩放、单击聚焦、双击查看概念详情、框选起点与
+终点生成知识链路解说。生成脉络后右上节点面板会展示「本次融会贯通」报告。
+
+星图相关 API：`/api/v1/galaxy`、`/api/v1/domains/refresh`、
+`/api/v1/concepts/{start}/path/{end}`。
+
 ## 常用命令
 
 | 输入 | 说明 |

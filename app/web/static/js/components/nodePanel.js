@@ -107,6 +107,9 @@ function renderNodes(nodes) {
         <div class="node-item" style="--depth:${Math.min(depth[node.id] || 0, 6)}">
           <div class="node-main" data-expand="${esc(node.id)}">
             <span class="node-label">${esc(node.label)}</span>
+            ${(node.concept_mention_count || 0) > 1
+              ? `<span class="global-badge" title="该概念还出现在其他材料中">⛓ ${Number(node.concept_mention_count) - 1}</span>`
+              : ""}
             <span class="node-type-tag ${esc(node.node_type || "concept")}">${esc(TYPE_LABELS[node.node_type] || "概念")}</span>
             <span class="node-id">${esc(node.id)}</span>
           </div>

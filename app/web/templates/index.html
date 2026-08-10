@@ -76,8 +76,9 @@
       <h2 id="canvasTitle">脉络画布</h2>
       <div class="head-actions">
         <div class="segmented" role="tablist" aria-label="视图">
+          <button type="button" class="seg active" data-view="galaxy">星图</button>
           <button type="button" class="seg" data-view="force">图谱</button>
-          <button type="button" class="seg active" data-view="mermaid">图形</button>
+          <button type="button" class="seg" data-view="mermaid">图形</button>
           <button type="button" class="seg" data-view="markdown">大纲</button>
         </div>
         <div class="zoom-tools">
@@ -100,6 +101,17 @@
       </div>
       <div id="forceArea" class="force-area" hidden></div>
       <div id="outlineArea" class="outline-area" hidden></div>
+      <div id="galaxyArea" class="galaxy-area" hidden>
+        <div class="galaxy-toolbar">
+          <span class="panel-tag" id="galaxyCount">0 概念 · 0 边</span>
+          <button type="button" class="ghost-btn small" id="pathStartBtn">选起点</button>
+          <button type="button" class="ghost-btn small" id="pathEndBtn">选终点</button>
+          <button type="button" class="ghost-btn small" id="pathExplainBtn">知识链路</button>
+          <span id="pathStatus" class="path-status"></span>
+        </div>
+        <div id="galaxyCanvas" class="galaxy-canvas"></div>
+        <div id="galaxyPathResult" class="galaxy-path-result" hidden></div>
+      </div>
     </div>
   </section>
   <div class="splitter splitter-right" data-resize="right"></div>
@@ -124,6 +136,7 @@
           <span class="m-hint" id="masteryHint">完成复习后可提升</span>
         </div>
       </div>
+      <div id="ahaReport" class="aha-report" hidden></div>
       <div id="nodeEmpty" class="empty-state small">打开一张脉络图后管理节点</div>
       <div id="nodeForm" class="node-form" hidden>
         <div class="node-current" id="nodeGraphMeta"></div>

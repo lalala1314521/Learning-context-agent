@@ -101,6 +101,31 @@ class ConceptAlignmentTestCase(ConceptDbTestCase):
         remaining = client.get("/api/v1/concepts").json()["data"]
         self.assertEqual(len(remaining), 1)
 
+    def test_galaxy_and_knowledge_path(self):
+        graph_a = repository.create_graph(title="笔记A", graph_type="markdown")
+        repository.add_node(graph_a, "梯度下降", note="沿负梯度方向更新参数")
+        repository.add_node(graph_a, "损失函数", note="衡量预测与真实值的差距")
+        graph_b = repository.create_graph(title="笔记B", graph_type="markdown")
+        repository.add_node(graph_b, "梯度下降", note="迭代更新模型参数")
+        repository.add_node(graph_b, "交叉熵损失", note="分类任务常用的损失")
+        align_graph_nodes(graph_a)
+        align_graph_nodes(graph_b)
+
+        client = TestClient(app)
+        galaxy = client.get("/api/v1/galaxy").json()["data"]
+        self.assertGreaterEqual(len(galaxy["concepts"]), 3)
+        self.assertGreater(len(galaxy["links"]), 0)
+        self.assertGreater(len(galaxy["domains"]), 0)
+
+        labels = {c["id"]: c["canonical_label"] for c in galaxy["concepts"]}
+        start = next(cid for cid, label in labels.items() if label == "损失函数")
+        end = next(cid for cid, label in labels.items() if label == "交叉熵损失")
+        path = client.get(
+            f"/api/v1/concepts/{start}/path/{end}"
+        ).json()["data"]
+        self.assertGreaterEqual(len(path["path"]), 2)
+        self.assertTrue(path["explanation"])
+
     def test_golden_set_shape(self):
         path = pathlib.Path(__file__).parent / "fixtures" / "disambiguation_golden.json"
         data = json.loads(path.read_text(encoding="utf-8"))

@@ -2,6 +2,7 @@ import { api } from "./api.js";
 import { initAskPanel } from "./components/askPanel.js";
 import { emit, on } from "./bus.js";
 import { initCanvasPanel, showGraph } from "./components/canvasPanel.js";
+import { initGalaxyPanel, refreshGalaxy } from "./components/galaxyPanel.js";
 import { initHistoryPanel, refreshHistory } from "./components/historyPanel.js";
 import { initInputPanel } from "./components/inputPanel.js";
 import { initNodePanel, showNodes } from "./components/nodePanel.js";
@@ -14,6 +15,7 @@ function boot() {
   initInputPanel();
   initHistoryPanel();
   initCanvasPanel();
+  initGalaxyPanel();
   initNodePanel();
   initReviewPanel();
   initAskPanel();
@@ -43,6 +45,8 @@ function boot() {
       }
       showGraph(data);
       showNodes(data);
+      refreshGalaxy();
+      showReport(data.concept_report);
       refreshHistory();
       refreshReview();
       refreshStats();
@@ -71,6 +75,7 @@ function boot() {
         api(`/links?graph_id=${encodeURIComponent(graphId)}`),
       ]);
       data.links = links;
+      hideReport();
       showGraph(data);
       showNodes(data);
       refreshReview();
@@ -84,6 +89,44 @@ function boot() {
 
   refreshHistory();
   refreshStats();
+}
+
+function showReport(report) {
+  const el = document.getElementById("ahaReport");
+  if (!el) return;
+  if (!report || !report.aligned_mentions) {
+    el.hidden = true;
+    return;
+  }
+  const newLinks = report.new_links || [];
+  const reinforced = report.reinforced || [];
+  const newConcepts = report.new_concepts || [];
+  const rows = [
+    ...newLinks.map((link) =>
+      `<div class="aha-row"><span class="aha-new">新连接</span><b>${escapeHtml(link.from_label)}</b> → <b>${escapeHtml(link.to_label)}</b><span class="aha-meta">${escapeHtml(link.relation_type)} · ${Math.round((link.confidence || 0) * 100)}%</span></div>`),
+    ...reinforced.slice(0, 5).map((item) =>
+      `<div class="aha-row"><span class="aha-reinforce">强化</span><b>${escapeHtml(item.label)}</b><span class="aha-meta">第 ${item.mention_count || 1} 次提及</span></div>`),
+    ...newConcepts.slice(0, 5).map((item) =>
+      `<div class="aha-row"><span class="aha-new">新概念</span><b>${escapeHtml(item.label)}</b></div>`),
+  ];
+  el.hidden = false;
+  el.innerHTML = `
+    <div class="aha-heading">本次融会贯通</div>
+    <div class="aha-summary">${report.aligned_mentions} 个提及已对齐，${newLinks.length} 条新连接</div>
+    ${rows.join("") || '<div class="aha-row">本次没有发现新连接</div>'}`;
+}
+
+function hideReport() {
+  const el = document.getElementById("ahaReport");
+  if (el) el.hidden = true;
+}
+
+function escapeHtml(value) {
+  return String(value == null ? "" : value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 async function refreshStats() {

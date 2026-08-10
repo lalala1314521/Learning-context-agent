@@ -2,11 +2,12 @@ import { api } from "../api.js";
 import { on } from "../bus.js";
 import { downloadFile, esc } from "../util.js";
 import { destroyForceGraph, renderForceGraph } from "./forceGraph.js";
+import { showGalaxy } from "./galaxyPanel.js";
 
 let current = null;
 let currentNodes = [];
 let currentLinks = [];
-let view = "mermaid";
+let view = "galaxy";
 let zoom = 1;
 
 export function initCanvasPanel() {
@@ -57,6 +58,7 @@ export function showGraph(data) {
   document.getElementById("canvasTitle").textContent = graph.title || "脉络画布";
   document.getElementById("emptyState").hidden = true;
   document.getElementById("canvasLoading").hidden = true;
+  document.getElementById("galaxyArea").hidden = view !== "galaxy";
   document.getElementById("viewport").hidden = view !== "mermaid";
   document.getElementById("forceArea").hidden = view !== "force";
   document.getElementById("outlineArea").hidden = view !== "markdown";
@@ -65,10 +67,19 @@ export function showGraph(data) {
 }
 
 async function renderCurrent() {
-  if (!current) return;
   const viewport = document.getElementById("viewport");
   const force = document.getElementById("forceArea");
   const outline = document.getElementById("outlineArea");
+
+  if (view === "galaxy") {
+    viewport.hidden = true;
+    outline.hidden = true;
+    force.hidden = true;
+    await showGalaxy();
+    return;
+  }
+
+  if (!current) return;
 
   if (view === "force") {
     viewport.hidden = true;

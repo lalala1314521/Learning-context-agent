@@ -425,6 +425,51 @@ def list_concept_links(
     ))
 
 
+@router.get("/galaxy")
+def get_galaxy():
+    ensure_database()
+    from app.services.domains import refresh_domains
+    domains = refresh_domains()
+    concepts = repository.list_concepts()
+    links = repository.list_concept_links(
+        limit=10000,
+        min_confidence=config.CONCEPT_LINK_MIN_CONFIDENCE,
+    )
+    mastery = repository.get_concept_mastery()
+    for concept in concepts:
+        concept["mastery"] = mastery.get(concept["id"], {
+            "review_count": 0,
+            "repetitions": 0,
+            "mastery": "unseen",
+            "retrievability": None,
+            "last_reviewed_at": None,
+        })
+    return ok({
+        "concepts": concepts,
+        "links": links,
+        "domains": domains,
+        "mastery": mastery,
+    })
+
+
+@router.post("/domains/refresh")
+def refresh_domains():
+    from app.services.domains import refresh_domains as run_refresh
+    return ok(run_refresh())
+
+
+@router.get("/concepts/{start_id}/path/{end_id}")
+def concept_path(start_id: str, end_id: str):
+    from app.services.knowledge_path import explain_path, find_shortest_path
+    path = find_shortest_path(start_id, end_id)
+    if not path:
+        return ok({"path": [], "explanation": "当前概念网络中没有连通路径"})
+    return ok({
+        "path": path,
+        "explanation": explain_path(path),
+    })
+
+
 @router.patch("/concept-links/{link_id}")
 def update_concept_link(link_id: str, payload: ConceptLinkStatusUpdate):
     if not repository.update_concept_link_status(link_id, payload.status):

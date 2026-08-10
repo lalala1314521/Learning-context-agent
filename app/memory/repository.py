@@ -211,7 +211,12 @@ def get_nodes(graph_id: str) -> list[dict]:
     conn = get_connection()
     try:
         rows = conn.execute(
-            "SELECT * FROM graph_nodes WHERE graph_id = ? ORDER BY order_index",
+            """SELECT n.*, c.canonical_label AS concept_label,
+                      c.mention_count AS concept_mention_count
+               FROM graph_nodes n
+               LEFT JOIN concepts c ON c.id = n.concept_id
+               WHERE n.graph_id = ?
+               ORDER BY n.order_index""",
             (graph_id,),
         ).fetchall()
     finally:
@@ -775,6 +780,56 @@ def list_domains() -> list[dict]:
             "SELECT * FROM domains ORDER BY concept_count DESC, created_at ASC"
         ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def update_domain_count(domain_id: str, count: int) -> bool:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE domains SET concept_count = ? WHERE id = ?",
+            (count, domain_id),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def get_concept_mastery() -> dict[str, dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT n.concept_id,
+                      COUNT(rp.id) AS review_count,
+                      MAX(rp.repetitions) AS repetitions,
+                      MAX(rp.updated_at) AS last_reviewed_at
+               FROM graph_nodes n
+               LEFT JOIN review_progress rp ON rp.node_id = n.id
+               WHERE n.concept_id IS NOT NULL
+               GROUP BY n.concept_id""",
+        ).fetchall()
+        result: dict[str, dict] = {}
+        for row in rows:
+            repetitions = int(row["repetitions"] or 0)
+            review_count = int(row["review_count"] or 0)
+            if review_count == 0:
+                level = "unseen"
+            elif repetitions < 2:
+                level = "weak"
+            elif repetitions < 5:
+                level = "medium"
+            else:
+                level = "strong"
+            result[row["concept_id"]] = {
+                "review_count": review_count,
+                "repetitions": repetitions,
+                "mastery": level,
+                "retrievability": None,
+                "last_reviewed_at": row["last_reviewed_at"],
+            }
+        return result
     finally:
         conn.close()
 
