@@ -82,10 +82,11 @@ class Phase5TestCase(unittest.TestCase):
         finally:
             path.unlink(missing_ok=True)
 
-    def test_anki_export_graceful(self):
+    def test_anki_export(self):
         response = self.client.get("/api/v1/export/anki.apkg")
-        self.assertEqual(response.status_code, 501)
-        self.assertIn("genanki", response.json()["error"])
+        self.assertEqual(response.status_code, 200)
+        self.assertGreater(len(response.content), 0)
+        self.assertIn("apkg", response.headers.get("content-disposition", ""))
 
 
 if __name__ == "__main__":

@@ -48,7 +48,7 @@ def _load_model():
     except ImportError:
         return None
     try:
-        model = SentenceTransformer(config.EMBEDDING_MODEL)
+        model = SentenceTransformer(config.EMBEDDING_MODEL, local_files_only=True)
     except Exception:
         return None
     _model_cache[config.EMBEDDING_MODEL] = model
