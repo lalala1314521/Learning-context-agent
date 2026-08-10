@@ -82,6 +82,8 @@ ws.addEventListener("open", async () => {
     title: document.title,
     graphs: document.querySelectorAll(".graph-item").length,
     forceBtn: !!document.querySelector('[data-view="force"]'),
+    galaxyHidden: document.getElementById("galaxyArea")?.hidden,
+    galaxySvg: !!document.querySelector("#galaxyArea svg"),
   })`);
 
   await evaluate(`document.querySelector('[data-id="e250960b55a4"]')?.click()`);
@@ -95,8 +97,10 @@ ws.addEventListener("open", async () => {
   await sleep(1500);
   const force = await evaluate(`({
     hidden: document.getElementById("forceArea")?.hidden,
+    galaxyHidden: document.getElementById("galaxyArea")?.hidden,
     svg: !!document.querySelector("#forceArea svg"),
     nodes: document.querySelectorAll("#forceArea .force-node").length,
+    links: document.querySelectorAll("#forceArea .force-link").length,
   })`);
 
   await evaluate(`document.querySelector('[data-view="markdown"]')?.click()`);
@@ -116,19 +120,43 @@ ws.addEventListener("open", async () => {
 
   const drag = await evaluate(`(() => {
     const root = document.documentElement;
-    const before = getComputedStyle(root).getPropertyValue("--left-w").trim();
     const splitter = document.querySelector(".splitter-left");
     const rect = splitter.getBoundingClientRect();
     const x = rect.left + rect.width / 2;
     const y = rect.top + rect.height / 2;
-    splitter.dispatchEvent(new MouseEvent("mousedown", { clientX: x, clientY: y, bubbles: true }));
-    document.dispatchEvent(new MouseEvent("mousemove", { clientX: x + 90, clientY: y, bubbles: true }));
-    document.dispatchEvent(new MouseEvent("mouseup", { clientX: x + 90, clientY: y, bubbles: true }));
-    const after = getComputedStyle(root).getPropertyValue("--left-w").trim();
-    return { before, after };
+    const before = parseFloat(getComputedStyle(document.querySelector(".input-panel")).width);
+    splitter.dispatchEvent(new PointerEvent("pointerdown", { clientX: x, clientY: y, bubbles: true, pointerId: 1 }));
+    document.dispatchEvent(new PointerEvent("pointermove", { clientX: x + 90, clientY: y, bubbles: true, pointerId: 1 }));
+    document.dispatchEvent(new PointerEvent("pointerup", { clientX: x + 90, clientY: y, bubbles: true, pointerId: 1 }));
+    const after = parseFloat(getComputedStyle(document.querySelector(".input-panel")).width);
+    const grid = document.querySelector(".grid-main");
+    return {
+      before,
+      after,
+      gridVar: grid.style.getPropertyValue("--left-w"),
+      columns: getComputedStyle(grid).gridTemplateColumns,
+    };
   })()`);
 
-  console.log(JSON.stringify({ initial, opened, force, outline, mermaid, drag, errors: consoleMessages }, null, 2));
+  const collapsed = await evaluate(`(() => {
+    const btn = document.querySelector('[data-collapse="input"]');
+    btn?.click();
+    const panel = document.querySelector(".input-panel");
+    const afterClick = {
+      collapsed: panel?.classList.contains("collapsed"),
+      width: panel ? parseFloat(getComputedStyle(panel).width) : 0,
+      buttonVisible: btn ? getComputedStyle(btn).display !== "none" && btn.offsetWidth > 0 : false,
+      gridVar: document.querySelector(".grid-main").style.getPropertyValue("--left-w"),
+      columns: getComputedStyle(document.querySelector(".grid-main")).gridTemplateColumns,
+    };
+    btn?.click();
+    return {
+      afterClick,
+      expanded: !panel?.classList.contains("collapsed"),
+    };
+  })()`);
+
+  console.log(JSON.stringify({ initial, opened, force, outline, mermaid, drag, collapsed, errors: consoleMessages }, null, 2));
   ws.close();
   edge.kill();
   try {

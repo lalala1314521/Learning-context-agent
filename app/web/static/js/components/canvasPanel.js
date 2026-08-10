@@ -2,11 +2,12 @@ import { api } from "../api.js";
 import { on } from "../bus.js";
 import { downloadFile, esc } from "../util.js";
 import { destroyForceGraph, renderForceGraph } from "./forceGraph.js";
-import { showGalaxy } from "./galaxyPanel.js";
+import { hideGalaxy, showGalaxy } from "./galaxyPanel.js";
 
 let current = null;
 let currentNodes = [];
 let currentLinks = [];
+let currentConceptLinks = [];
 let view = "galaxy";
 let zoom = 1;
 
@@ -55,6 +56,7 @@ export function showGraph(data) {
   current = graph;
   currentNodes = data.nodes || [];
   currentLinks = data.links || [];
+  currentConceptLinks = data.concept_links || [];
   document.getElementById("canvasTitle").textContent = graph.title || "脉络画布";
   document.getElementById("emptyState").hidden = true;
   document.getElementById("canvasLoading").hidden = true;
@@ -79,13 +81,14 @@ async function renderCurrent() {
     return;
   }
 
+  hideGalaxy();
   if (!current) return;
 
   if (view === "force") {
     viewport.hidden = true;
     outline.hidden = true;
     force.hidden = false;
-    renderForceGraph(current, currentNodes, currentLinks);
+    renderForceGraph(current, currentNodes, currentLinks, currentConceptLinks);
     return;
   }
 
@@ -171,14 +174,67 @@ async function renderMermaid(code, area) {
   });
   try {
     const id = `mmd-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-    const { svg } = await window.mermaid.render(id, code);
+    const { svg } = await window.mermaid.render(id, normalizeMermaid(code));
     area.innerHTML = svg;
     fitToViewport();
   } catch {
+    const fallback = buildFallbackMermaid();
+    if (fallback) {
+      try {
+        const fallbackId = `mmd-fallback-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+        const { svg } = await window.mermaid.render(fallbackId, fallback);
+        area.innerHTML = svg;
+        area.insertAdjacentHTML(
+          "beforeend",
+          '<div class="diagram-error">原始 Mermaid 语法不兼容，已使用节点结构降级图</div>',
+        );
+        fitToViewport();
+        return;
+      } catch {
+        // fall through to raw code
+      }
+    }
     area.innerHTML = `
       <pre class="raw-code">${esc(code)}</pre>
       <div class="diagram-error">Mermaid 渲染失败，已显示原始代码</div>`;
   }
+}
+
+function normalizeMermaid(code) {
+  return String(code || "")
+    .replace(/```mermaid\s*\n?/gi, "")
+    .replace(/```/g, "")
+    .replace(/【Mermaid】:\s*/g, "")
+    .replace(/\r\n/g, "\n")
+    .trim();
+}
+
+function buildFallbackMermaid() {
+  const nodes = currentNodes || [];
+  if (!nodes.length) return "";
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const lines = ["graph TD"];
+  const nodeIds = new Map();
+  nodes.forEach((node, index) => {
+    const id = `N${index}`;
+    nodeIds.set(node.id, id);
+    const label = String(node.label || "未命名")
+      .replace(/["[\]]/g, "")
+      .replace(/\n/g, " ")
+      .slice(0, 40);
+    lines.push(`    ${id}["${label}"]`);
+  });
+  nodes.forEach((node) => {
+    if (node.parent_id && nodeIds.has(node.parent_id) && nodeIds.has(node.id)) {
+      lines.push(`    ${nodeIds.get(node.parent_id)} --> ${nodeIds.get(node.id)}`);
+    }
+    (node.related_nodes || []).forEach((targetId) => {
+      if (nodeIds.has(targetId) && nodeIds.has(node.id) && targetId !== node.id) {
+        lines.push(`    ${nodeIds.get(node.id)} --- ${nodeIds.get(targetId)}`);
+      }
+    });
+  });
+  return lines.join("\n");
 }
 
 function setZoom(next) {

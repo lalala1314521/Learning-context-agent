@@ -18,7 +18,7 @@ const TYPE_LABELS = {
   conclusion: "结论",
 };
 
-export function renderForceGraph(graph, nodes, links) {
+export function renderForceGraph(graph, nodes, links, conceptLinks = []) {
   const area = document.getElementById("forceArea");
   area.hidden = false;
   area.innerHTML = "";
@@ -37,6 +37,9 @@ export function renderForceGraph(graph, nodes, links) {
   const nodeMap = new Map(nodes.map((node) => [node.id, node]));
   const related = [];
   nodes.forEach((node) => {
+    if (node.parent_id && nodeMap.has(node.parent_id) && node.id !== node.parent_id) {
+      related.push({ source: node.id, target: node.parent_id });
+    }
     (node.related_nodes || []).forEach((targetId) => {
       if (nodeMap.has(targetId) && node.id !== targetId) {
         related.push({ source: node.id, target: targetId });
@@ -47,6 +50,23 @@ export function renderForceGraph(graph, nodes, links) {
     if (link.from_graph_id === graph.id && nodeMap.has(link.from_node_id) && nodeMap.has(link.to_node_id)) {
       related.push({ source: link.from_node_id, target: link.to_node_id });
     }
+  });
+  const conceptToNodes = new Map();
+  nodes.forEach((node) => {
+    if (!node.concept_id) return;
+    if (!conceptToNodes.has(node.concept_id)) conceptToNodes.set(node.concept_id, []);
+    conceptToNodes.get(node.concept_id).push(node.id);
+  });
+  (conceptLinks || []).forEach((link) => {
+    const fromNodes = conceptToNodes.get(link.from_concept) || [];
+    const toNodes = conceptToNodes.get(link.to_concept) || [];
+    fromNodes.forEach((fromNode) => {
+      toNodes.forEach((toNode) => {
+        if (fromNode !== toNode) {
+          related.push({ source: fromNode, target: toNode });
+        }
+      });
+    });
   });
   const seen = new Set();
   const uniqueLinks = related.filter((link) => {

@@ -125,6 +125,21 @@ def _hydrate_nodes(graph_id: str) -> int:
     return len(nodes)
 
 
+def _concept_links_for_nodes(nodes: list[dict]) -> list[dict]:
+    concept_ids = {
+        node.get("concept_id")
+        for node in nodes
+        if node.get("concept_id")
+    }
+    if not concept_ids:
+        return []
+    links = repository.list_concept_links(limit=10000, min_confidence=0.0)
+    return [
+        link for link in links
+        if link["from_concept"] in concept_ids and link["to_concept"] in concept_ids
+    ]
+
+
 def _initial_state(
     content: str,
     output_format: str,
@@ -329,6 +344,7 @@ def generate_graph(payload: GenerateRequest):
         "memory_snapshot_id": result.get("memory_snapshot_id", ""),
         "concept_report": result.get("concept_report") or {},
         "concepts": repository.get_concepts_for_graph(graph_id) if graph_id else [],
+        "concept_links": _concept_links_for_nodes(nodes) if graph_id else [],
         "long_text_report": result.get("long_text_report") or {},
         "long_text_chapter_graph_ids": result.get("long_text_chapter_graph_ids") or [],
         "chunk_count": len(repository.list_content_chunks(graph_id)) if graph_id else 0,
@@ -369,6 +385,7 @@ def generate_graph_async(payload: GenerateRequest):
             "memory_snapshot_id": result.get("memory_snapshot_id", ""),
             "concept_report": result.get("concept_report") or {},
             "concepts": repository.get_concepts_for_graph(graph_id) if graph_id else [],
+            "concept_links": _concept_links_for_nodes(nodes) if graph_id else [],
             "long_text_report": result.get("long_text_report") or {},
             "long_text_chapter_graph_ids": result.get("long_text_chapter_graph_ids") or [],
             "chunk_count": len(repository.list_content_chunks(graph_id)) if graph_id else 0,
@@ -462,7 +479,12 @@ def get_graph(graph_id: str):
     if not graph:
         raise ApiError("脉络图不存在", status=404)
     _hydrate_nodes(graph_id)
-    return ok({"graph": graph, "nodes": repository.get_nodes(graph_id)})
+    nodes = repository.get_nodes(graph_id)
+    return ok({
+        "graph": graph,
+        "nodes": nodes,
+        "concept_links": _concept_links_for_nodes(nodes),
+    })
 
 
 @router.get("/graphs/{graph_id}/outline")
@@ -566,8 +588,14 @@ def list_concept_links(
 def get_galaxy():
     ensure_database()
     from app.services.domains import refresh_domains
-    domains = refresh_domains()
     concepts = repository.list_concepts()
+    existing_domains = repository.list_domains()
+    domain_count = sum(int(d.get("concept_count") or 0) for d in existing_domains)
+    domains = (
+        refresh_domains()
+        if not existing_domains or domain_count < len(concepts)
+        else existing_domains
+    )
     links = repository.list_concept_links(
         limit=10000,
         min_confidence=config.CONCEPT_LINK_MIN_CONFIDENCE,

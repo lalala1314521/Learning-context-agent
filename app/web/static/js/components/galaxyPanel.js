@@ -41,6 +41,10 @@ export async function showGalaxy(force = false) {
   if (outline) outline.hidden = true;
   if (!galaxyCache || force) {
     try {
+      const canvas = document.getElementById("galaxyCanvas");
+      if (canvas) {
+        canvas.innerHTML = '<div class="empty-state small">星图加载中...</div>';
+      }
       galaxyCache = await api("/galaxy");
     } catch (error) {
       area.innerHTML = `<div class="empty-state small">星图加载失败：${esc(error.message)}</div>`;
@@ -48,6 +52,12 @@ export async function showGalaxy(force = false) {
     }
   }
   render();
+}
+
+export function hideGalaxy() {
+  stopSimulation();
+  const area = document.getElementById("galaxyArea");
+  if (area) area.hidden = true;
 }
 
 export async function refreshGalaxy() {
