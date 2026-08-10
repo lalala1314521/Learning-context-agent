@@ -8,7 +8,7 @@ import re
 from app.config import config
 from app.logging_config import get_logger
 from app.memory import repository
-from app.services.llm import get_llm, invoke_safe
+from app.services.llm import estimate_tokens, get_llm, invoke_safe
 
 logger = get_logger("services.knowledge")
 
@@ -129,32 +129,66 @@ def answer_question(
     question: str,
     use_database: bool = True,
     web_fallback: bool = True,
+    on_event=None,
 ) -> dict:
     """混合 RAG 问答：知识库检索 → 覆盖率不足时联网兜底 → LLM 综合回答。
+
+    on_event：可选回调，接收 {"type","text","detail","tokens"} 轨迹事件，
+    供前端实时展示 Agent 思考链（与图谱生成轨迹同构）。
 
     Returns:
         {"answer": str, "sources": list[dict], "has_sources": bool,
          "web_fallback_used": bool, "coverage": int}
     """
+    def emit(event: dict) -> None:
+        if on_event:
+            on_event(event)
+
     sources: list[dict] = []
     parts: list[str] = []
+    kb_context = ""
+    emit({"type": "thought", "text": "正在检索知识库（脉络/节点/记忆/原文分块）…", "detail": "", "tokens": 0})
     if use_database:
         kb_context, kb_sources = build_knowledge_context(question)
         sources.extend(kb_sources)
         if kb_context.strip():
             parts.append(f"## 已收录知识\n{kb_context}")
+    source_labels = [
+        s.get("title") or s.get("label") or s.get("summary") or s.get("id")
+        for s in sources[:8]
+    ]
+    emit({
+        "type": "tool",
+        "text": f"知识库检索完成：{len(sources)} 个来源命中",
+        "detail": "\n".join(f"- {label}" for label in source_labels) or "（未命中）",
+        "tokens": estimate_tokens(kb_context),
+    })
 
     coverage = sum(len(p) for p in parts)
     web_used = False
     if web_fallback and coverage < _KB_COVERAGE_THRESHOLD and config.TAVILY_API_KEY:
-        web_parts, web_sources = _web_retrieval(knowledge_query(question))
+        query = knowledge_query(question)
+        emit({
+            "type": "action",
+            "text": "知识库覆盖不足，自动联网搜索补充",
+            "detail": f"搜索关键词：{query}",
+            "tokens": 0,
+        })
+        web_parts, web_sources = _web_retrieval(query)
         if web_sources:
             web_used = True
             sources.extend(web_sources)
             if web_parts:
                 parts.append(f"## 联网搜索结果\n{chr(10).join(web_parts)}")
+            emit({
+                "type": "tool",
+                "text": f"联网搜索返回 {len(web_sources)} 条来源",
+                "detail": "\n".join(f"- {s.get('title') or s.get('url')}" for s in web_sources[:5]),
+                "tokens": estimate_tokens(" ".join(web_parts)),
+            })
             logger.info("知识问答联网兜底触发，覆盖率 %d chars", coverage)
 
+    emit({"type": "thought", "text": "综合已有知识与检索结果，组织回答…", "detail": "", "tokens": 0})
     context = "\n\n".join(parts)[:14000]
     answer = ask_llm(question, context)
     return {

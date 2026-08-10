@@ -250,6 +250,28 @@ B --- D[关联概念]
         stored = repository.get_graph(graph_id)
         self.assertTrue(stored["mermaid_code"].lower().startswith("graph td"))
 
+    def test_web_search_toggle_forces_search(self):
+        """勾选联网搜索后，生成流程确定性触发 tool_web_search 并保存结果。"""
+        fake_agent = _FakeReActLLM([
+            AIMessage(content="已搜索并完成。"),
+        ])
+        fake_search = mock.MagicMock(return_value=[
+            {"title": "ML", "url": "http://x", "content": "监督学习相关背景信息"},
+        ])
+        graph = build_graph()
+        with mock.patch("app.graph.agent.get_llm", return_value=fake_agent), \
+                mock.patch("app.tools.web_search.search_web", fake_search), \
+                mock.patch("app.graph.nodes._llm_intent", return_value="generate_graph"):
+            result = graph.invoke(
+                build_initial_state("机器学习", web_search_enabled=True),
+                {"configurable": {"thread_id": "websearch-test"}},
+            )
+        self.assertTrue(fake_search.called)
+        tools_called = [s["tool"] for s in result["intermediate_steps"]]
+        self.assertIn("tool_web_search", tools_called)
+        # 搜索结果应写入 supplementary_info 供生成使用
+        self.assertIn("监督学习", result.get("supplementary_info", ""))
+
     def test_node_id_collision_between_graphs(self):
         """LLM 节点短 id（A/B）跨图冲突时，仍应正确保存节点并重映射引用。"""
         from app.services.graph_generation import save_generated_graph

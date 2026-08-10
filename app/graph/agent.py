@@ -82,10 +82,27 @@ def agent_node(state: AgentState) -> dict:
         )
         return {"messages": [stop_msg], "thought": stop_msg.content}
 
-    # 大内容确定性快捷路径：无需 LLM 决策，直接进入生成管线，
-    # 避免把超大正文塞进 Agent 上下文造成超限。
     user_input = state.get("user_input") or ""
-    if (not state.get("intermediate_steps")
+
+    # 用户开启联网搜索：首个决策确定性触发 tool_web_search，保证搜索一定发生。
+    # 无论 router 判为生成还是问答，只要勾选即触发（文件/URL 走确定性 web_search_node）。
+    if (state.get("web_search_enabled")
+            and not state.get("intermediate_steps")
+            and state.get("action") in ("generate_graph", "chat")):
+        logger.info("web search forced by toggle")
+        return {
+            "messages": [AIMessage(content="", tool_calls=[{
+                "name": "tool_web_search",
+                "args": {"query": user_input[:200]},
+                "id": "auto-web-search",
+                "type": "tool_call",
+            }])],
+            "thought": "用户已开启联网搜索，先补充与主题相关的背景信息。",
+        }
+
+    # 大内容确定性快捷路径：无需 LLM 决策，直接进入生成管线，
+    # 避免把超大正文塞进 Agent 上下文造成超限（已在必要时先完成联网搜索）。
+    if (not state.get("current_graph_id")
             and len(user_input) > config.SINGLE_LLM_CHUNK_LIMIT
             and state.get("action") != "chat"):
         logger.info(
@@ -106,6 +123,11 @@ def agent_node(state: AgentState) -> dict:
         }
 
     system = SYSTEM_PROMPT
+    if state.get("web_search_enabled"):
+        system += (
+            "\n\n## 联网搜索要求\n用户已开启联网搜索，联网结果已提供。"
+            "请结合搜索到的背景信息作答或生成脉络图。"
+        )
     ctx = state.get("conversation_context") or ""
     if ctx:
         system = f"{system}\n\n## 历史对话摘要（更早的轮次）\n{ctx}"
@@ -170,15 +192,21 @@ def tools_node(state: AgentState) -> dict:
     outputs: list[ToolMessage] = []
     steps: list[dict] = []
     graph_updates: dict = {}
+    updates: dict = {}
+    supplementary = state.get("supplementary_info") or ""
 
     for tc in last.tool_calls:
         name = tc.get("name") or tc["name"]
-        args = tc.get("args") or {}
+        args = dict(tc.get("args") or {})
         fn = tool_map.get(name)
         if fn is None:
             observation = f"未知工具: {name}"
             logger.warning("Agent 调用了未知工具 %s", name)
         else:
+            # 生成脉络时把已搜集的联网结果并入生成内容，避免搜索结果被丢弃
+            if name == "tool_generate_graph" and supplementary:
+                content = str(args.get("content") or "")
+                args["content"] = f"{content}\n\n## 联网搜索结果\n{supplementary}"
             try:
                 observation = str(fn.invoke(args))
             except Exception as exc:
@@ -190,6 +218,9 @@ def tools_node(state: AgentState) -> dict:
             "tool_input": args,
             "observation": observation[:2000],
         })
+        if name == "tool_web_search":
+            supplementary = observation
+            updates["supplementary_info"] = supplementary
         if name in _GRAPH_CREATING_TOOLS:
             graph_updates.update(_extract_graph_updates(observation, name))
 
@@ -197,7 +228,12 @@ def tools_node(state: AgentState) -> dict:
         "tools_node executed %d tool(s), graph_updates=%s",
         len(outputs), bool(graph_updates),
     )
-    return {"messages": outputs, "intermediate_steps": steps, **graph_updates}
+    return {
+        "messages": outputs,
+        "intermediate_steps": steps,
+        **graph_updates,
+        **updates,
+    }
 
 
 def should_continue(state: AgentState) -> str:
