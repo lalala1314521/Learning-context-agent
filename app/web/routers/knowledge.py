@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.services.knowledge import ask_llm, build_knowledge_context
+from app.services.knowledge import answer_question
 from app.web.dependencies import ensure_database
 from app.web.routers.common import ApiError, ok
 from app.web.schemas import AskRequest
@@ -13,17 +13,17 @@ router = APIRouter()
 @router.post("/ask")
 def ask_knowledge(payload: AskRequest):
     ensure_database()
-    context, sources = build_knowledge_context(payload.question)
-    if not payload.use_database:
-        context = ""
-        sources = []
     try:
-        answer = ask_llm(payload.question, context)
+        result = answer_question(
+            payload.question,
+            use_database=payload.use_database,
+        )
     except Exception as e:
         raise ApiError(f"知识问答失败: {e}", status=502)
     return ok({
         "question": payload.question,
-        "answer": answer,
-        "sources": sources,
-        "has_sources": bool(sources),
+        "answer": result["answer"],
+        "sources": result["sources"],
+        "has_sources": result["has_sources"],
+        "web_fallback_used": result["web_fallback_used"],
     })

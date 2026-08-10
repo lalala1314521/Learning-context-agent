@@ -208,6 +208,15 @@ B --- D[关联概念]
 # 机器学习
 - 监督学习
   - 关联概念
+【节点数据】:
+```json
+[
+  {"id": "A", "label": "机器学习", "note": "让计算机从数据中学习的学科", "node_type": "concept", "parent_id": "", "related_nodes": []},
+  {"id": "B", "label": "监督学习", "note": "使用带标签数据训练", "node_type": "method", "parent_id": "A", "related_nodes": []},
+  {"id": "C", "label": "无监督学习", "note": "使用无标签数据发现结构", "node_type": "method", "parent_id": "A", "related_nodes": []},
+  {"id": "D", "label": "关联概念", "note": "与监督学习相关的概念", "node_type": "concept", "parent_id": "B", "related_nodes": ["B"]}
+]
+```
 """
         fake_agent = _FakeReActLLM([
             _tool_call_message("tool_generate_graph", {
@@ -240,6 +249,42 @@ B --- D[关联概念]
 
         stored = repository.get_graph(graph_id)
         self.assertTrue(stored["mermaid_code"].lower().startswith("graph td"))
+
+    def test_node_id_collision_between_graphs(self):
+        """LLM 节点短 id（A/B）跨图冲突时，仍应正确保存节点并重映射引用。"""
+        from app.services.graph_generation import save_generated_graph
+
+        payloads = ('[{"id": "A", "label": "机器学习", "note": "note1", '
+                    '"node_type": "concept", "parent_id": "", "related_nodes": []}, '
+                    '{"id": "B", "label": "监督学习", "note": "note2", '
+                    '"node_type": "method", "parent_id": "A", "related_nodes": ["A"]}]')
+        # 先造一张已占用 id=A / B 的旧图
+        g0 = repository.create_graph(title="旧图", graph_type="markdown")
+        repository.add_node(g0, "旧机器学习", node_id="A")
+        repository.add_node(g0, "旧监督学习", node_id="B")
+
+        result = save_generated_graph(
+            content="内容",
+            input_type="text",
+            source_name="",
+            graph_mermaid="graph TD\nA[机器学习] --> B[监督学习]",
+            graph_markdown="# 机器学习\n- 监督学习",
+            node_payloads=payloads,
+            long_text_tier="S",
+            long_text_chunks=[],
+            chapter_payloads=[],
+        )
+        self.assertFalse(result.get("error"))
+        nodes = repository.get_nodes(result["current_graph_id"])
+        self.assertEqual(len(nodes), 2)
+        by_label = {n["label"]: n for n in nodes}
+        self.assertNotIn(by_label["机器学习"]["id"], ("A", "B"))  # 已重映射唯一 id
+        self.assertEqual(by_label["监督学习"]["parent_id"], by_label["机器学习"]["id"])
+        self.assertEqual(
+            by_label["监督学习"]["related_nodes"],
+            [by_label["机器学习"]["id"]],
+        )
+        self.assertEqual(by_label["机器学习"]["note"], "note1")
 
     def test_manage_and_open_flow(self):
         graph_id = repository.create_graph(title="测试脉络", graph_type="markdown")
@@ -279,6 +324,13 @@ mindmap
 【Markdown大纲】:
 # 深度学习
 - 监督学习
+【节点数据】:
+```json
+[
+  {"id": "root", "label": "深度学习", "note": "深度神经网络学习的统称", "node_type": "concept", "parent_id": "", "related_nodes": []},
+  {"id": "A", "label": "监督学习", "note": "依赖标注数据的范式", "node_type": "method", "parent_id": "root", "related_nodes": []}
+]
+```
 """
         fake_agent = _FakeReActLLM([
             _tool_call_message("tool_generate_graph", {
@@ -315,7 +367,7 @@ mindmap
         self.addCleanup(os.remove, path2)
 
         fake_gen = _FakeLLM([
-            "【Mermaid】:\n```mermaid\ngraph TD\nA[内容]\n```\n【Markdown大纲】:\n# 内容\n- 要点\n",
+            "【Mermaid】:\n```mermaid\ngraph TD\nA[内容]\n```\n【Markdown大纲】:\n# 内容\n- 要点\n【节点数据】:\n```json\n[{\"id\": \"A\", \"label\": \"内容\", \"note\": \"批量文件的核心内容\", \"node_type\": \"concept\", \"parent_id\": \"\", \"related_nodes\": []}]\n```\n",
             '{"summary": "批量文件摘要", "key_points": ["监督学习"]}',
         ])
         graph = build_graph()

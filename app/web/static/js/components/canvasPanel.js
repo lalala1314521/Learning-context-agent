@@ -3,6 +3,7 @@ import { on } from "../bus.js";
 import { downloadFile, esc } from "../util.js";
 import { destroyForceGraph, renderForceGraph } from "./forceGraph.js";
 import { hideGalaxy, showGalaxy } from "./galaxyPanel.js";
+import { showNodeDetails } from "./nodePanel.js";
 
 let current = null;
 let currentNodes = [];
@@ -176,6 +177,7 @@ async function renderMermaid(code, area) {
     const id = `mmd-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
     const { svg } = await window.mermaid.render(id, normalizeMermaid(code));
     area.innerHTML = svg;
+    bindMermaidNodeClicks();
     fitToViewport();
   } catch {
     const fallback = buildFallbackMermaid();
@@ -188,6 +190,7 @@ async function renderMermaid(code, area) {
           "beforeend",
           '<div class="diagram-error">原始 Mermaid 语法不兼容，已使用节点结构降级图</div>',
         );
+        bindMermaidNodeClicks();
         fitToViewport();
         return;
       } catch {
@@ -198,6 +201,22 @@ async function renderMermaid(code, area) {
       <pre class="raw-code">${esc(code)}</pre>
       <div class="diagram-error">Mermaid 渲染失败，已显示原始代码</div>`;
   }
+}
+
+function bindMermaidNodeClicks() {
+  const svg = document.querySelector("#diagramArea svg");
+  if (!svg) return;
+  const normalize = (text) => String(text || "").replace(/\s+/g, "");
+  svg.querySelectorAll("g.node").forEach((el) => {
+    el.style.cursor = "pointer";
+    el.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const label = normalize(el.textContent);
+      const node = currentNodes.find((n) => normalize(n.label) === label)
+        || currentNodes.find((n) => label.includes(normalize(n.label).slice(0, 4)));
+      if (node) showNodeDetails(node);
+    });
+  });
 }
 
 function normalizeMermaid(code) {

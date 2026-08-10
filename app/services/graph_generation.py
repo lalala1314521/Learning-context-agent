@@ -7,6 +7,7 @@
 
 import json
 import re
+import uuid
 
 from app.config import config
 from app.logging_config import get_logger
@@ -19,7 +20,7 @@ from app.memory.repository import (
 from app.memory.embeddings import embed_texts
 from app.prompts.graph_gen import GRAPH_GEN_PROMPT
 from app.services.chunking import chunk_content, classify_content
-from app.services.llm import estimate_tokens, get_llm, invoke_safe
+from app.services.llm import estimate_tokens, get_llm, invoke_safe, invoke_structured
 from app.services.longtext import (
     create_book_subgraphs,
     map_reduce,
@@ -31,9 +32,68 @@ logger = get_logger("services.graph_generation")
 
 _MERMAID_RE = re.compile(r"```mermaid\s*\n(.*?)```", re.DOTALL)
 _MARKDOWN_RE = re.compile(r"【Markdown大纲】:\s*\n(.*?)(?=【|\Z)", re.DOTALL)
-_NODE_PAYLOADS_RE = re.compile(
-    r"【节点数据】:\s*\n```(?:json)?\s*\n(\[.*?\])\s*```", re.DOTALL
+# 【节点数据】多种格式：代码块包裹 / 单行数组 / 带冒号变体
+_NODE_PAYLOADS_FENCED_RE = re.compile(
+    r"【节点数据】\s*[:：]?\s*\n?```(?:json)?\s*\n(\[.*?\])\s*```", re.DOTALL
 )
+_NODE_PAYLOADS_INLINE_RE = re.compile(
+    r"【节点数据】\s*[:：]?\s*\n?(\[[^\n]*?\])", re.DOTALL
+)
+
+
+def _find_json_array(text: str) -> str | None:
+    """按括号配平找到文本中第一个 JSON 数组子串（跳过字符串内的括号）。"""
+    start = text.find("[")
+    if start == -1:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None
+
+
+def _extract_node_payloads(text: str) -> str:
+    """鲁棒地提取节点数据 JSON 数组，兼容 LLM 输出格式漂移。"""
+    candidates: list[str] = []
+    for pattern in (_NODE_PAYLOADS_FENCED_RE, _NODE_PAYLOADS_INLINE_RE):
+        m = pattern.search(text)
+        if m:
+            candidates.append(m.group(1))
+    anchor = re.search(r"【节点数据】", text)
+    if anchor:
+        arr = _find_json_array(text[anchor.end():])
+        if arr:
+            candidates.append(arr)
+    arr = _find_json_array(text)
+    if arr:
+        candidates.append(arr)
+    for candidate in candidates:
+        try:
+            payloads = json.loads(candidate)
+            if (isinstance(payloads, list) and payloads
+                    and isinstance(payloads[0], dict) and "label" in payloads[0]):
+                return json.dumps(payloads, ensure_ascii=False)
+        except Exception:
+            continue
+    return ""
 
 
 def _extract_graph_output(text: str) -> dict:
@@ -48,20 +108,10 @@ def _extract_graph_output(text: str) -> dict:
         markdown = md_match.group(1).strip()
     elif not mermaid:
         markdown = text.strip()
-    node_payloads = ""
-    json_match = _NODE_PAYLOADS_RE.search(text)
-    if json_match:
-        try:
-            payloads = json.loads(json_match.group(1))
-            if isinstance(payloads, list) and payloads:
-                node_payloads = json.dumps(payloads, ensure_ascii=False)
-        except Exception as exc:
-            logger.warning("解析节点数据失败: %s", exc)
-            node_payloads = ""
     return {
         "graph_mermaid": mermaid,
         "graph_markdown": markdown,
-        "node_payloads": node_payloads,
+        "node_payloads": _extract_node_payloads(text),
     }
 
 
@@ -79,7 +129,7 @@ def _invoke_text(llm, prompt: str) -> str:
 
 
 def _generate_single_shot(content: str, output_format: str, llm) -> dict:
-    """S 级内容：单次 LLM 调用生成，带 Mermaid 校验 + 1 次重试。"""
+    """S 级内容：单次 LLM 调用生成，带 Mermaid 校验 + 1 次重试 + 节点详情兜底。"""
     prompt = GRAPH_GEN_PROMPT.replace("{content}", content[: config.MAX_CONTENT_LENGTH])
     last_reason = ""
     output: dict = {}
@@ -97,11 +147,43 @@ def _generate_single_shot(content: str, output_format: str, llm) -> dict:
         logger.warning("Mermaid 校验失败，重试: %s", reason)
         last_reason = reason
         output["graph_mermaid"] = ""
+    # 节点详情兜底：主生成未产出【节点数据】时，用一次轻量调用补全
+    if output.get("graph_mermaid") and not output.get("node_payloads"):
+        enriched = _enrich_node_payloads(output["graph_mermaid"], content, llm)
+        if enriched:
+            output["node_payloads"] = enriched
+            logger.info("节点详情兜底补全 %d 节点", len(json.loads(enriched)))
     if output_format == "mermaid":
         output["graph_markdown"] = ""
     elif output_format == "markdown":
         output["graph_mermaid"] = ""
     return output
+
+
+def _enrich_node_payloads(mermaid: str, content: str, llm) -> str:
+    """从 Mermaid + 源内容用一次 LLM 调用补全节点详情 JSON 数组。"""
+    if llm is None or not mermaid:
+        return ""
+    prompt = (
+        "下面是已生成的 Mermaid 脉络图与源内容。请为图中的每个节点补充详情，"
+        "输出 JSON 对象 {{\"nodes\": [...]}}，nodes 为数组，每项字段："
+        "id(与 Mermaid 一致或自增), label(节点文本), "
+        "note(1-2 句具体解释/关键句/例子，不能为空), "
+        "node_type(concept/method/case/formula/conclusion), "
+        "parent_id(本图内父节点 id 或空串), related_nodes(本图内关联 id 列表)。"
+        "只输出 JSON。\n\nMermaid:\n{mermaid}\n\n源内容:\n{content}"
+    )
+    data = invoke_structured(
+        prompt.format(mermaid=mermaid[:4000], content=content[:6000]),
+        llm=llm,
+        retries=1,
+    )
+    if not isinstance(data, dict):
+        return ""
+    nodes = data.get("nodes")
+    if isinstance(nodes, list) and nodes:
+        return json.dumps(nodes, ensure_ascii=False)
+    return ""
 
 
 def _detect_graph_type(mermaid: str) -> str:
@@ -253,17 +335,30 @@ def save_generated_graph(
 
     try:
         if payloads:
+            # LLM 节点 id 常为短串（A/B/C），而 graph_nodes.id 是全局主键，
+            # 直接复用会导致跨图 UNIQUE 冲突。这里统一分配全局唯一 id，
+            # 并把 parent_id / related_nodes 从 LLM 短 id 重映射到新 id。
+            id_map: dict[str, str] = {}
+            assigned: list[str] = []
+            for node in payloads:
+                raw_id = str(node.get("id") or "").strip()
+                new_id = uuid.uuid4().hex[:12]
+                assigned.append(new_id)
+                if raw_id:
+                    id_map[raw_id] = new_id
             for index, node in enumerate(payloads):
+                parent = str(node.get("parent_id") or "").strip()
+                related = [str(x).strip() for x in (node.get("related_nodes") or [])]
                 repo_add_node(
                     graph_id,
                     label=str(node.get("label") or "").strip(),
                     note=str(node.get("note") or "").strip(),
                     node_type=str(node.get("node_type") or "concept"),
-                    parent_id=(node.get("parent_id") or None),
-                    related_nodes=node.get("related_nodes") or [],
+                    parent_id=id_map.get(parent) if parent else None,
+                    related_nodes=[x for x in (id_map.get(r) for r in related) if x],
                     order_index=int(node.get("order_index") or index),
                     created_by="agent",
-                    node_id=str(node.get("id") or ""),
+                    node_id=assigned[index],
                 )
         else:
             for node in parse_graph_structure(mermaid, markdown):

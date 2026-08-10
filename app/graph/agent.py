@@ -25,7 +25,7 @@ _GRAPH_CREATING_TOOLS = {"tool_generate_graph", "tool_create_graph"}
 _CONVERSATION_SUMMARY_PROMPT = (
     "请把下面的多轮学习对话压缩成一段中文摘要（200 字以内），"
     "保留用户关心的主题、已生成的脉络、已确认的偏好。只输出 JSON："
-    '{"summary": "..."}。\n\n对话内容：\n{messages}'
+    '{{"summary": "..."}}。\n\n对话内容：\n{messages}'
 )
 
 

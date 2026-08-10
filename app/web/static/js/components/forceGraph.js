@@ -1,4 +1,5 @@
 import { esc } from "../util.js";
+import { showNodeDetails } from "./nodePanel.js";
 
 let simulation = null;
 
@@ -141,6 +142,11 @@ export function renderForceGraph(graph, nodes, links, conceptLinks = []) {
       if (!tip) area.appendChild(existing);
       setTimeout(() => existing.remove(), 5000);
     }
+  });
+  // 双击节点 → 展开完整知识点详情
+  nodeSelection.on("dblclick", (event, d) => {
+    event.stopPropagation();
+    showNodeDetails(d);
   });
 }
 

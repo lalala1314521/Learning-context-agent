@@ -1,4 +1,7 @@
-"""知识库检索与问答 service：Web /ask 端点与 ReAct tool_ask_knowledge 共用。"""
+"""知识库问答 service：混合 RAG（关键词 LIKE + 向量检索）+ 覆盖率不足时联网兜底。
+
+Web /ask 端点与 ReAct tool_ask_knowledge 共用。
+"""
 
 import re
 
@@ -15,12 +18,16 @@ _QUESTION_NOISE = re.compile(
 )
 
 _ASK_SYSTEM = (
-    "你是学习脉络智能体的知识问答助手。请先检索用户知识库中的内容，再回答问题。\n"
+    "你是学习脉络智能体的知识问答助手，综合「已收录知识」与「联网搜索结果」回答问题。\n"
     "回答要求：\n"
-    "1. 明确标注「已收录知识」与「知识库未直接覆盖，基于已有知识推理」。\n"
-    "2. 如果知识库中没有相关内容，直接说明，不要编造。\n"
-    "3. 最后给出 2-3 个值得继续学习的相关方向。\n"
+    "1. 优先使用「已收录知识」回答，并明确标注来源类型（已收录 / 联网搜索）。\n"
+    "2. 知识库覆盖不足时，请综合联网搜索到的内容推理，引用时给出资料来源标题或链接。\n"
+    "3. 如果联网与知识库都未覆盖该问题，直接说明，不要编造。\n"
+    "4. 最后给出 2-3 个值得继续学习的相关方向。\n"
 )
+
+# 覆盖率低于该字符数时触发联网兜底
+_KB_COVERAGE_THRESHOLD = 300
 
 
 def knowledge_query(question: str) -> str:
@@ -31,7 +38,7 @@ def knowledge_query(question: str) -> str:
 
 
 def build_knowledge_context(query: str) -> tuple[str, list[dict]]:
-    """检索知识库（脉络 / 节点 / 记忆摘要 / 原文分块），返回上下文与来源清单。"""
+    """从知识库检索（脉络 / 节点 / 记忆摘要 / 原文分块），返回上下文与来源清单。"""
     query = knowledge_query(query)
     sources: list[dict] = []
     parts: list[str] = []
@@ -76,12 +83,95 @@ def build_knowledge_context(query: str) -> tuple[str, list[dict]]:
     return "\n\n".join(parts)[:8000], sources
 
 
+def _web_retrieval(query: str, fetch_top: int = 1) -> tuple[list[str], list[dict]]:
+    """联网检索（Tavily），并尽力抓取前几条权威来源的正文。"""
+    from app.tools.web_search import search_web
+
+    results = search_web(query)
+    if not results or results[0].get("title") == "搜索失败":
+        return [], []
+    parts: list[str] = []
+    sources: list[dict] = []
+    for r in results[: config.TAVILY_MAX_RESULTS]:
+        sources.append({
+            "type": "web",
+            "title": r.get("title", ""),
+            "url": r.get("url", ""),
+        })
+        snippet = (r.get("content") or "")[:300]
+        if snippet.strip():
+            parts.append(f"[联网 · {r.get('title', '')}]({r.get('url', '')})\n{snippet}")
+
+    # 尽力抓取最权威的前几条页面正文，丰富上下文
+    fetched = 0
+    for r in results:
+        if fetched >= fetch_top:
+            break
+        url = r.get("url", "")
+        if not url:
+            continue
+        try:
+            from app.tools.web_fetcher import fetch_url
+            page = fetch_url(url)
+        except Exception as exc:
+            logger.warning("联网抓取失败 %s: %s", url, exc)
+            continue
+        if page.get("error") or not page.get("content"):
+            continue
+        text = page["content"][:4000]
+        title = page.get("title") or r.get("title", "")
+        parts.insert(0, f"[官方正文 · {title}]({url})\n{text}")
+        fetched += 1
+    return parts, sources
+
+
+def answer_question(
+    question: str,
+    use_database: bool = True,
+    web_fallback: bool = True,
+) -> dict:
+    """混合 RAG 问答：知识库检索 → 覆盖率不足时联网兜底 → LLM 综合回答。
+
+    Returns:
+        {"answer": str, "sources": list[dict], "has_sources": bool,
+         "web_fallback_used": bool, "coverage": int}
+    """
+    sources: list[dict] = []
+    parts: list[str] = []
+    if use_database:
+        kb_context, kb_sources = build_knowledge_context(question)
+        sources.extend(kb_sources)
+        if kb_context.strip():
+            parts.append(f"## 已收录知识\n{kb_context}")
+
+    coverage = sum(len(p) for p in parts)
+    web_used = False
+    if web_fallback and coverage < _KB_COVERAGE_THRESHOLD and config.TAVILY_API_KEY:
+        web_parts, web_sources = _web_retrieval(knowledge_query(question))
+        if web_sources:
+            web_used = True
+            sources.extend(web_sources)
+            if web_parts:
+                parts.append(f"## 联网搜索结果\n{chr(10).join(web_parts)}")
+            logger.info("知识问答联网兜底触发，覆盖率 %d chars", coverage)
+
+    context = "\n\n".join(parts)[:14000]
+    answer = ask_llm(question, context)
+    return {
+        "answer": answer,
+        "sources": sources,
+        "has_sources": bool(sources),
+        "web_fallback_used": web_used,
+        "coverage": coverage,
+    }
+
+
 def local_answer(question: str, context: str) -> str:
     """DeepSeek 不可用时的本地降级回答。"""
     if not context.strip():
         return (
-            "知识库未直接覆盖该问题。建议先补充相关材料，"
-            "或换一个更接近已有脉络的关键词检索。"
+            "知识库未直接覆盖该问题，且当前无法联网或调用模型。"
+            "建议补充相关材料，或换一个更接近已有脉络的关键词检索。"
         )
     return (
         "已收录知识（本地检索结果）：\n\n"
@@ -92,12 +182,12 @@ def local_answer(question: str, context: str) -> str:
 
 
 def ask_llm(question: str, context: str) -> str:
-    """基于检索上下文回答问题。"""
+    """基于检索上下文（知识库 + 联网）回答问题。"""
     from langchain_core.messages import HumanMessage, SystemMessage
 
     if not config.DEEPSEEK_API_KEY:
         return local_answer(question, context)
-    user = f"## 用户问题\n{question}\n\n## 知识库检索结果\n{context or '（未检索到相关内容）'}"
+    user = f"## 用户问题\n{question}\n\n## 检索结果\n{context or '（未检索到相关内容）'}"
     try:
         llm = get_llm()
         response = invoke_safe(

@@ -39,7 +39,7 @@ _INTENT_ACTIONS = {
     "parse_file", "parse_url", "generate_graph", "chat",
 }
 
-_INTENT_PROMPT = """你是意图分类器。判断用户想做什么，只输出 JSON：{"action": "<action>"}
+_INTENT_PROMPT = """你是意图分类器。判断用户想做什么，只输出 JSON：{{"action": "<action>"}}
 可选 action（只能选一个）：
 - list_graphs：列出/查看所有脉络图
 - search_graphs：搜索、检索、回顾、复习已有脉络

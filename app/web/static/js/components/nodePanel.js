@@ -141,6 +141,50 @@ function renderNodes(nodes) {
   });
 }
 
+export function showNodeDetails(node) {
+  if (!node) return;
+  const byId = new Map(currentNodes.map((item) => [item.id, item]));
+  const parentLabel = node.parent_id && byId.has(node.parent_id)
+    ? byId.get(node.parent_id).label
+    : "根";
+  const related = (node.related_nodes || [])
+    .map((id) => (byId.get(id) ? byId.get(id).label : id))
+    .join("、") || "-";
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h3>${esc(node.label || "节点详情")}</h3>
+        <button type="button" class="modal-close" aria-label="关闭">×</button>
+      </div>
+      <div class="modal-body node-detail">
+        <span class="node-type-tag ${esc(node.node_type || "concept")}">${esc(TYPE_LABELS[node.node_type] || "概念")}</span>
+        <p class="node-detail-note">${esc(node.note || "（暂无具体内容，可在节点面板点击“改”补充）")}</p>
+        <div class="node-detail-meta">
+          <div>节点 ID：${esc(node.id)}</div>
+          <div>父节点：${esc(parentLabel)}</div>
+          <div>关联节点：${esc(related)}</div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="ghost-btn modal-edit" data-id="${esc(node.id)}">编辑</button>
+        <button type="button" class="primary-btn modal-close-btn">关闭</button>
+      </div>
+    </div>`;
+  const close = () => overlay.remove();
+  overlay.querySelector(".modal-close").addEventListener("click", close);
+  overlay.querySelector(".modal-close-btn").addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  overlay.querySelector(".modal-edit").addEventListener("click", () => {
+    close();
+    handleAction("update", node.id);
+  });
+  document.body.appendChild(overlay);
+}
+
 function addNode() {
   if (!currentGraph) return;
   const label = document.getElementById("nodeLabelInput").value.trim();

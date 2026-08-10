@@ -11,7 +11,6 @@ from langchain_core.tools import tool
 from app.logging_config import get_logger
 from app.memory import repository
 from app.services.graph_generation import generate_and_save_graph
-from app.services.knowledge import ask_llm, build_knowledge_context
 
 logger = get_logger("tools.react")
 
@@ -108,11 +107,15 @@ def tool_parse_url(url: str) -> str:
 
 @tool
 def tool_ask_knowledge(question: str) -> str:
-    """基于已保存的知识库（脉络图/节点/记忆）回答问题。用于用户询问已学内容时。
+    """基于知识库回答问题；知识库覆盖不足时自动联网检索补充，综合推理后返回回答。
 
     Args:
         question: 用户的知识性问题
     """
-    context, sources = build_knowledge_context(question)
-    answer = ask_llm(question, context)
-    return answer
+    from app.services.knowledge import answer_question
+
+    result = answer_question(question)
+    suffix = ""
+    if result["web_fallback_used"]:
+        suffix = "\n\n（注：已自动联网搜索补充，请核实具体来源链接。）"
+    return f"{result['answer']}{suffix}"

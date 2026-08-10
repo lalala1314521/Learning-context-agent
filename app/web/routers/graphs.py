@@ -27,6 +27,27 @@ router = APIRouter()
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
+_STAGE_LABELS = {
+    "router": "意图识别",
+    "prepare_conversation": "上下文准备",
+    "agent": "Agent 思考",
+    "tools": "工具执行",
+    "parse_content": "内容解析",
+    "web_search": "联网搜索",
+    "generate_graph": "脉络生成",
+    "save_graph": "保存脉络",
+    "align_concepts": "概念对齐",
+    "persist_graph_memory": "记忆持久化",
+    "list_graphs": "列出脉络",
+    "search_graphs": "检索脉络",
+    "get_graph": "打开脉络",
+    "manage_graph": "管理节点",
+}
+
+
+def _stage_label(node_name: str) -> str:
+    return _STAGE_LABELS.get(node_name, node_name or "处理中")
+
 
 def _validate_upload(filename: str, raw: bytes) -> str | None:
     suffix = Path(filename or "").suffix.lower()
@@ -122,22 +143,51 @@ def generate_graph(payload: GenerateRequest):
 
 @router.post("/graphs/generate/async")
 def generate_graph_async(payload: GenerateRequest):
-    """Start generation in a background job and return a pollable job id."""
+    """Start generation in a background job and return a pollable job id.
 
-    def runner() -> dict:
+    使用 graph.stream 逐节点产出，实时把 Agent 轨迹（思考/工具调用/观察/后处理）
+    写入 job.trace，供前端轮询实时展示。
+    """
+
+    def runner(job: dict | None = None) -> dict:
+        import time
+
+        from app.graph.trace import build_trace_events
+
         thread_id = payload.thread_id or f"web-{uuid.uuid4().hex}"
-        result = get_graph_runner().invoke(
-            build_initial_state(
-                payload.content,
-                output_format=payload.output_format,
-                web_search_enabled=payload.web_search_enabled,
-                selected_chapters=payload.selected_chapters,
-            ),
-            {"configurable": {"thread_id": thread_id}},
+        graph = get_graph_runner()
+        initial = build_initial_state(
+            payload.content,
+            output_format=payload.output_format,
+            web_search_enabled=payload.web_search_enabled,
+            selected_chapters=payload.selected_chapters,
         )
-        if result.get("error"):
-            raise ApiError(result["error"], status=502)
-        graph_id = result.get("current_graph_id", "")
+        config_ctx = {"configurable": {"thread_id": thread_id}}
+
+        started = time.time()
+        trace: list[dict] = list((job or {}).get("trace") or [])
+        total_tokens = 0
+        final: dict = {}
+        try:
+            for chunk in graph.stream(initial, config_ctx):
+                for node_name, update in chunk.items():
+                    final.update(update)
+                    for event in build_trace_events(node_name, update):
+                        event["ms"] = int((time.time() - started) * 1000)
+                        total_tokens += int(event.get("tokens") or 0)
+                        trace.append(event)
+                    if job is not None:
+                        job["trace"] = list(trace)
+                        job["total_tokens"] = total_tokens
+                        job["elapsed_ms"] = int((time.time() - started) * 1000)
+                        job["stage"] = _stage_label(node_name)
+                        job["progress"] = min(90, 5 + len(trace) * 9)
+        except Exception as exc:
+            raise ApiError(f"脉络生成失败: {exc}", status=502)
+
+        if final.get("error"):
+            raise ApiError(final["error"], status=502)
+        graph_id = final.get("current_graph_id", "")
         graph = repository.get_graph(graph_id) if graph_id else None
         nodes = repository.get_nodes(graph_id) if graph_id else []
         auto_links = []
@@ -149,17 +199,19 @@ def generate_graph_async(payload: GenerateRequest):
             "id": graph_id,
             "title": graph.get("title") if graph else None,
             "graph_type": graph.get("graph_type") if graph else None,
-            "mermaid": result.get("graph_mermaid", ""),
-            "markdown": result.get("graph_markdown", ""),
-            "memory_snapshot_id": result.get("memory_snapshot_id", ""),
-            "concept_report": result.get("concept_report") or {},
+            "mermaid": final.get("graph_mermaid", ""),
+            "markdown": final.get("graph_markdown", ""),
+            "memory_snapshot_id": final.get("memory_snapshot_id", ""),
+            "concept_report": final.get("concept_report") or {},
             "concepts": repository.get_concepts_for_graph(graph_id) if graph_id else [],
             "concept_links": _concept_links_for_nodes(nodes) if graph_id else [],
-            "long_text_report": result.get("long_text_report") or {},
-            "long_text_chapter_graph_ids": result.get("long_text_chapter_graph_ids") or [],
+            "long_text_report": final.get("long_text_report") or {},
+            "long_text_chapter_graph_ids": final.get("long_text_chapter_graph_ids") or [],
             "chunk_count": len(repository.list_content_chunks(graph_id)) if graph_id else 0,
             "nodes": nodes,
             "auto_links": auto_links,
+            "trace": trace,
+            "total_tokens": total_tokens,
         }
 
     job_id = start_job(runner, title=payload.content[:40])

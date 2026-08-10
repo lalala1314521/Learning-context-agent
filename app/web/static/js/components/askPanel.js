@@ -21,15 +21,19 @@ async function ask() {
   try {
     const data = await api("/ask", { method: "POST", body: { question, use_database: true } });
     const sourceTags = (data.sources || []).map((source) => {
-      const label = source.type === "graph"
-        ? `脉络 · ${source.title || source.id}`
-        : source.type === "node"
-          ? `节点 · ${source.label}`
-          : `记忆 · ${source.summary || source.id}`;
+      let label;
+      if (source.type === "graph") label = `脉络 · ${source.title || source.id}`;
+      else if (source.type === "node") label = `节点 · ${source.label}`;
+      else if (source.type === "web") label = `联网 · ${source.title || source.url}`;
+      else label = `记忆 · ${source.summary || source.id}`;
       return `<span class="ask-source">${esc(label)}</span>`;
     }).join("");
+    const webHint = data.web_fallback_used
+      ? '<div class="ask-web-hint">已自动联网搜索补充，请结合来源核实。</div>'
+      : "";
     result.innerHTML = `
       <div class="ask-answer">${esc(data.answer)}</div>
+      ${webHint}
       ${sourceTags ? `<div class="ask-sources">${sourceTags}</div>` : '<div class="ask-sources"><span class="ask-source missing">知识库未命中</span></div>'}
     `;
     setStatus("知识问答完成");

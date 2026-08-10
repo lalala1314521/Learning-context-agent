@@ -106,18 +106,20 @@ class WebApiTestCase(unittest.TestCase):
         self.assertEqual(data["memory_snapshot_id"], "m1")
 
     def test_async_generation_job(self):
-        fake_result = {
-            "current_graph_id": "g2",
-            "graph_mermaid": "graph TD\nA[x] --> B[y]",
-            "graph_markdown": "# x\n- y",
-            "memory_snapshot_id": "m2",
-            "concept_report": {},
-            "long_text_report": {},
-            "long_text_chapter_graph_ids": [],
-            "error": "",
-        }
+        fake_chunks = [
+            {"tools": {
+                "current_graph_id": "g2",
+                "graph_mermaid": "graph TD\nA[x] --> B[y]",
+                "graph_markdown": "# x\n- y",
+                "long_text_report": {},
+                "long_text_chapter_graph_ids": [],
+                "intermediate_steps": [{"tool": "tool_generate_graph", "tool_input": {}, "observation": "ok"}],
+            }},
+            {"align_concepts": {"concept_report": {}}},
+            {"persist_graph_memory": {"memory_snapshot_id": "m2"}},
+        ]
         fake_graph = mock.Mock()
-        fake_graph.invoke.return_value = fake_result
+        fake_graph.stream.return_value = fake_chunks
         # 后台线程会异步读取 get_graph_runner，因此 mock 需覆盖整个轮询期
         with mock.patch("app.web.routers.graphs.get_graph_runner", return_value=fake_graph):
             started = self.client.post(
@@ -136,6 +138,7 @@ class WebApiTestCase(unittest.TestCase):
         self.assertIsNotNone(data)
         self.assertEqual(data["status"], "done")
         self.assertEqual(data["result"]["id"], "g2")
+        self.assertTrue(data["result"]["trace"])
 
     def test_node_crud_and_memories(self):
         graph_id = repository.create_graph(title="节点测试", graph_type="markdown")
@@ -243,9 +246,13 @@ class WebApiTestCase(unittest.TestCase):
         graph_id = repository.create_graph(title="机器学习", graph_type="markdown")
         node_id = repository.add_node(graph_id, "监督学习", note="使用带标签数据训练")
         repository.save_memory_snapshot(graph_id, "机器学习记忆", ["监督学习"])
+        # mock LLM 与联网兜底，避免真实网络/模型调用
         with mock.patch(
-            "app.web.routers.knowledge.ask_llm",
+            "app.services.knowledge.ask_llm",
             return_value="已收录知识：监督学习。知识库未直接覆盖：强化学习。",
+        ), mock.patch(
+            "app.services.knowledge._web_retrieval",
+            return_value=([], []),
         ):
             response = self.client.post(
                 "/api/v1/ask",

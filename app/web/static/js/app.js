@@ -55,6 +55,8 @@ function boot() {
     generateBtn.disabled = true;
     const loading = document.getElementById("canvasLoading");
     loading.hidden = false;
+    const tracePanel = document.getElementById("agentTrace");
+    if (tracePanel) tracePanel.hidden = true;
     try {
       const job = await api("/graphs/generate/async", { method: "POST", body: payload });
       const data = await pollJob(job.id);
@@ -196,6 +198,7 @@ async function pollJob(jobId) {
   const loading = document.getElementById("canvasLoading");
   for (;;) {
     const job = await api(`/jobs/${encodeURIComponent(jobId)}`);
+    renderTrace(job);
     if (job.status === "done") return job.result;
     if (job.status === "error") throw new Error(job.error || "生成失败");
     if (job.progress > 5) {
@@ -204,6 +207,50 @@ async function pollJob(jobId) {
     }
     await new Promise((resolve) => setTimeout(resolve, 800));
   }
+}
+
+function renderTrace(job) {
+  const panel = document.getElementById("agentTrace");
+  if (!panel) return;
+  if (!job.trace || !job.trace.length) return;
+  panel.hidden = false;
+  const tokens = job.total_tokens || 0;
+  const elapsed = ((job.elapsed_ms || 0) / 1000).toFixed(1);
+  const remaining = estimateRemaining(job);
+  const meta = `${elapsed}s · ~${tokens} tokens${remaining ? ` · 预计还剩约 ${remaining}s` : ""}`;
+  const body = job.trace.map(renderTraceEvent).join("");
+  panel.innerHTML = `
+    <div class="agent-trace-head">
+      <span class="agent-trace-title">🤖 Agent 过程</span>
+      <span class="agent-trace-meta">${escapeHtml(meta)}</span>
+    </div>
+    <div class="agent-trace-body">${body}</div>`;
+  panel.scrollTop = panel.scrollHeight;
+}
+
+function renderTraceEvent(ev) {
+  const icon = ev.type === "thought" ? "💭"
+    : ev.type === "action" ? "🛠️"
+    : ev.type === "tool" ? "⚙️"
+    : ev.type === "done" ? "✅" : "·";
+  const detail = ev.detail ? `<div class="trace-detail">${escapeHtml(ev.detail)}</div>` : "";
+  const ms = ev.ms ? `<span class="trace-ms">+${ev.ms}ms</span>` : "";
+  return `<div class="trace-event trace-${ev.type}">
+    <span class="trace-icon">${icon}</span>
+    <div class="trace-content">
+      <div class="trace-text">${escapeHtml(ev.text)}${ms}</div>
+      ${detail}
+    </div>
+  </div>`;
+}
+
+function estimateRemaining(job) {
+  if (job.status === "done" || job.status === "error") return "";
+  const pct = Math.max(5, job.progress || 5);
+  const elapsed = (job.elapsed_ms || 0) / 1000;
+  if (elapsed <= 0 || pct >= 95) return "";
+  const total = elapsed / (pct / 100);
+  return Math.max(0, Math.round(total - elapsed));
 }
 
 function showReport(report) {
