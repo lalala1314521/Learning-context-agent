@@ -57,7 +57,10 @@ def create_app() -> FastAPI:
 
     @app.get("/", include_in_schema=False)
     def index():
-        return FileResponse(BASE_DIR / "templates" / "index.html")
+        return FileResponse(
+            BASE_DIR / "templates" / "index.html",
+            headers={"Cache-Control": "no-cache"},
+        )
 
     return app
 

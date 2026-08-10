@@ -212,13 +212,19 @@ async function pollJob(jobId) {
 function renderTrace(job) {
   const panel = document.getElementById("agentTrace");
   if (!panel) return;
-  if (!job.trace || !job.trace.length) return;
+  if (job.status === "done" && !(job.trace && job.trace.length)) {
+    panel.hidden = true;
+    return;
+  }
   panel.hidden = false;
   const tokens = job.total_tokens || 0;
   const elapsed = ((job.elapsed_ms || 0) / 1000).toFixed(1);
   const remaining = estimateRemaining(job);
   const meta = `${elapsed}s · ~${tokens} tokens${remaining ? ` · 预计还剩约 ${remaining}s` : ""}`;
-  const body = job.trace.map(renderTraceEvent).join("");
+  const body = (job.trace && job.trace.length)
+    ? job.trace.map(renderTraceEvent).join("")
+    : '<div class="trace-event trace-thought"><span class="trace-icon">💭</span>' +
+      '<div class="trace-content"><div class="trace-text">正在初始化 Agent…</div></div></div>';
   panel.innerHTML = `
     <div class="agent-trace-head">
       <span class="agent-trace-title">🤖 Agent 过程</span>
