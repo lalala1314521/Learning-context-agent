@@ -88,6 +88,21 @@ class Phase5TestCase(unittest.TestCase):
         self.assertGreater(len(response.content), 0)
         self.assertIn("apkg", response.headers.get("content-disposition", ""))
 
+    def test_ask_falls_back_without_deepseek(self):
+        original = config.DEEPSEEK_API_KEY
+        config.DEEPSEEK_API_KEY = ""
+        try:
+            graph_id = repository.create_graph(title="问答降级", graph_type="markdown")
+            repository.add_node(graph_id, "监督学习", note="使用带标签数据训练")
+            response = self.client.post(
+                "/api/v1/ask",
+                json={"question": "什么是监督学习？", "use_database": True},
+            )
+        finally:
+            config.DEEPSEEK_API_KEY = original
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("已收录知识", response.json()["data"]["answer"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -846,6 +846,36 @@ def record_concept_merge(winner_id: str, loser_id: str) -> str:
         conn.close()
 
 
+def delete_concept(concept_id: str) -> bool:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE graph_nodes SET concept_id = NULL WHERE concept_id = ?",
+            (concept_id,),
+        )
+        conn.execute("DELETE FROM concept_aliases WHERE concept_id = ?", (concept_id,))
+        conn.execute(
+            "DELETE FROM concept_links WHERE from_concept = ? OR to_concept = ?",
+            (concept_id, concept_id),
+        )
+        conn.execute("DELETE FROM review_history WHERE concept_id = ?", (concept_id,))
+        conn.execute("DELETE FROM concepts WHERE id = ?", (concept_id,))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def delete_concept_link(link_id: str) -> bool:
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM concept_links WHERE id = ?", (link_id,))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
 def create_domain(name: str, color: str = "#4f8ef7") -> str:
     conn = get_connection()
     try:

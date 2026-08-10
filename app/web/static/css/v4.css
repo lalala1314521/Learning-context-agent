@@ -269,6 +269,68 @@ html[data-theme="dark"] .canvas-card .canvas-body {
   display: none;
 }
 
+.graph-item {
+  position: relative;
+}
+
+.graph-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.graph-delete:hover {
+  color: var(--orange-strong);
+  border-color: var(--orange-pale);
+  background: var(--orange-soft);
+}
+
+.concept-link-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.concept-link-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(74, 141, 255, 0.06);
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.concept-link-row button {
+  border: 0;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.concept-link-row button:hover {
+  color: var(--orange-strong);
+}
+
+.concept-detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
 @media (max-width: 1180px) {
   .home-grid {
     grid-template-columns: 1fr;

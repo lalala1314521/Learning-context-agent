@@ -1,5 +1,6 @@
 import { api } from "../api.js";
 import { esc } from "../util.js";
+import { openModal } from "./modal.js";
 import { toast } from "./statusBar.js";
 
 let galaxyCache = null;
@@ -322,7 +323,47 @@ async function showConceptDetail(conceptId) {
       <div class="concept-detail-mentions">
         ${(data.mentions || []).map((m) =>
           `<span>${esc(m.graph_title || "脉络")} · ${esc(m.label)}</span>`).join("") || "暂无提及"}
+      </div>
+      <div class="concept-link-list">
+        ${(data.links || []).map((link) =>
+          `<div class="concept-link-row">
+             <span>${esc(link.from_label)} → ${esc(link.to_label)}</span>
+             <button type="button" data-delete-link="${esc(link.id)}">删</button>
+           </div>`).join("") || "暂无概念边"}
+      </div>
+      <div class="concept-detail-actions">
+        <button type="button" class="ghost-btn small danger" data-delete-concept="${esc(conceptId)}">删除概念</button>
       </div>`;
+    result.querySelector("[data-delete-concept]")?.addEventListener("click", () => {
+      openModal({
+        title: "删除概念",
+        fields: [{
+          key: "message",
+          label: "",
+          value: `确认删除概念「${concept.canonical_label || ""}」？对应节点会解除对齐，但不会删除脉络本身。`,
+          type: "textarea",
+        }],
+        confirmText: "删除",
+        onConfirm: async () => {
+          await api(`/concepts/${encodeURIComponent(conceptId)}`, { method: "DELETE" });
+          result.hidden = true;
+          await refreshGalaxy();
+        },
+      });
+    });
+    result.querySelectorAll("[data-delete-link]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        try {
+          await api(`/concept-links/${encodeURIComponent(button.dataset.deleteLink)}`, {
+            method: "DELETE",
+          });
+          await refreshGalaxy();
+          await showConceptDetail(conceptId);
+        } catch (error) {
+          toast(error.message, true);
+        }
+      });
+    });
   } catch (error) {
     toast(error.message, true);
   }

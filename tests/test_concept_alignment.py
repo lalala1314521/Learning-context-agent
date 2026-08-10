@@ -126,6 +126,31 @@ class ConceptAlignmentTestCase(ConceptDbTestCase):
         self.assertGreaterEqual(len(path["path"]), 2)
         self.assertTrue(path["explanation"])
 
+    def test_delete_concept_and_link(self):
+        graph_a = repository.create_graph(title="删除A", graph_type="markdown")
+        repository.add_node(graph_a, "梯度下降", note="优化算法")
+        repository.add_node(graph_a, "损失函数", note="衡量误差")
+        graph_b = repository.create_graph(title="删除B", graph_type="markdown")
+        repository.add_node(graph_b, "梯度下降", note="迭代更新")
+        repository.add_node(graph_b, "交叉熵损失", note="分类损失")
+        align_graph_nodes(graph_a)
+        align_graph_nodes(graph_b)
+
+        client = TestClient(app)
+        links = client.get("/api/v1/concept-links").json()["data"]
+        self.assertGreater(len(links), 0)
+        link_id = links[0]["id"]
+        deleted_link = client.delete(f"/api/v1/concept-links/{link_id}")
+        self.assertEqual(deleted_link.status_code, 200)
+        remaining = client.get("/api/v1/concept-links").json()["data"]
+        self.assertNotIn(link_id, [item["id"] for item in remaining])
+
+        concept_id = client.get("/api/v1/concepts").json()["data"][0]["id"]
+        deleted_concept = client.delete(f"/api/v1/concepts/{concept_id}")
+        self.assertEqual(deleted_concept.status_code, 200)
+        concepts = client.get("/api/v1/concepts").json()["data"]
+        self.assertNotIn(concept_id, [item["id"] for item in concepts])
+
     def test_golden_set_shape(self):
         path = pathlib.Path(__file__).parent / "fixtures" / "disambiguation_golden.json"
         data = json.loads(path.read_text(encoding="utf-8"))

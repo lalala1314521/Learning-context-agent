@@ -1,6 +1,8 @@
 import { api } from "../api.js";
 import { emit } from "../bus.js";
 import { esc } from "../util.js";
+import { openModal } from "./modal.js";
+import { setStatus, toast } from "./statusBar.js";
 
 export function initHistoryPanel() {
   const searchInput = document.getElementById("searchInput");
@@ -42,11 +44,34 @@ function renderGraphs(graphs) {
         <div class="graph-item" data-id="${esc(graph.id)}">
           <div class="graph-title">${esc(graph.title || "未命名")}</div>
           <div class="graph-meta">${esc(graph.graph_type || "auto")} · ${esc(graph.source_type || "text")} · ${esc(time)}</div>
+          <button type="button" class="graph-delete" data-delete="${esc(graph.id)}" title="删除脉络">删</button>
         </div>`;
     })
     .join("");
   el.querySelectorAll(".graph-item").forEach((item) => {
     item.addEventListener("click", () => emit("open-graph", item.dataset.id));
+  });
+  el.querySelectorAll("[data-delete]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const graphId = button.dataset.delete;
+      openModal({
+        title: "删除脉络",
+        fields: [{
+          key: "message",
+          label: "",
+          value: `确认删除脉络 ${graphId}？节点、题目和复习记录会一起删除。`,
+          type: "textarea",
+        }],
+        confirmText: "删除",
+        onConfirm: async () => {
+          await api(`/graphs/${encodeURIComponent(graphId)}`, { method: "DELETE" });
+          setStatus("脉络已删除");
+          await refreshHistory();
+          if (window.refreshStats) window.refreshStats();
+        },
+      });
+    });
   });
 }
 

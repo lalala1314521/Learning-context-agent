@@ -284,6 +284,20 @@ def _build_knowledge_context(query: str) -> tuple[str, list[dict]]:
     return "\n\n".join(parts)[:8000], sources
 
 
+def _local_answer(question: str, context: str) -> str:
+    if not context.strip():
+        return (
+            "知识库未直接覆盖该问题。建议先补充相关材料，"
+            "或换一个更接近已有脉络的关键词检索。"
+        )
+    return (
+        "已收录知识（本地检索结果）：\n\n"
+        f"{context[:1600]}\n\n"
+        "（当前 DeepSeek 暂不可用，以上为知识库原文片段；"
+        "可稍后重试获得更完整的回答。）"
+    )
+
+
 def _ask_llm(question: str, context: str):
     from langchain_core.messages import HumanMessage, SystemMessage
     from langchain_deepseek import ChatDeepSeek
@@ -296,14 +310,21 @@ def _ask_llm(question: str, context: str):
         "3. 最后给出 2-3 个值得继续学习的相关方向。\n"
     )
     user = f"## 用户问题\n{question}\n\n## 知识库检索结果\n{context or '（未检索到相关内容）'}"
-    llm = ChatDeepSeek(
-        model=config.DEEPSEEK_CHAT_MODEL,
-        api_key=config.DEEPSEEK_API_KEY,
-        base_url=config.DEEPSEEK_BASE_URL,
-        temperature=0.3,
-    )
-    response = llm.invoke([SystemMessage(content=system), HumanMessage(content=user)])
-    return response.content if hasattr(response, "content") else str(response)
+    if not config.DEEPSEEK_API_KEY:
+        return _local_answer(question, context)
+    try:
+        llm = ChatDeepSeek(
+            model=config.DEEPSEEK_CHAT_MODEL,
+            api_key=config.DEEPSEEK_API_KEY,
+            base_url=config.DEEPSEEK_BASE_URL,
+            temperature=0.3,
+            timeout=8,
+            max_retries=0,
+        )
+        response = llm.invoke([SystemMessage(content=system), HumanMessage(content=user)])
+        return response.content if hasattr(response, "content") else str(response)
+    except Exception:
+        return _local_answer(question, context)
 
 
 @router.get("/health")
@@ -571,6 +592,13 @@ def get_concept(concept_id: str):
     })
 
 
+@router.delete("/concepts/{concept_id}")
+def delete_concept(concept_id: str):
+    if not repository.delete_concept(concept_id):
+        raise ApiError("概念不存在", status=404)
+    return ok({"id": concept_id})
+
+
 @router.get("/concept-links")
 def list_concept_links(
     status: str = "",
@@ -640,6 +668,13 @@ def update_concept_link(link_id: str, payload: ConceptLinkStatusUpdate):
     if not repository.update_concept_link_status(link_id, payload.status):
         raise ApiError("概念链接不存在", status=404)
     return ok({"id": link_id, "status": payload.status})
+
+
+@router.delete("/concept-links/{link_id}")
+def delete_concept_link(link_id: str):
+    if not repository.delete_concept_link(link_id):
+        raise ApiError("概念链接不存在", status=404)
+    return ok({"id": link_id})
 
 
 @router.post("/graphs/{graph_id}/concepts/align")
