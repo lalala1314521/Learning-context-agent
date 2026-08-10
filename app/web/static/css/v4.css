@@ -1,0 +1,385 @@
+/* v4 page-based UI: separated white cards + mobile directory navigation */
+
+body {
+  overflow: hidden;
+}
+
+.shell {
+  display: flex;
+  gap: 16px;
+  padding: 16px;
+  height: calc(100vh - 72px - 52px);
+  min-height: 560px;
+}
+
+.side-nav {
+  width: 208px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: var(--shadow-card);
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 42px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s;
+}
+
+.nav-item:hover {
+  background: var(--blue-soft);
+  color: var(--blue-strong);
+}
+
+.nav-item.active {
+  background: linear-gradient(90deg, var(--blue-soft), var(--mint-soft));
+  color: var(--blue-strong);
+  font-weight: 600;
+}
+
+.nav-icon {
+  width: 24px;
+  text-align: center;
+  font-size: 16px;
+}
+
+.page-stack {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.page {
+  display: none;
+  height: 100%;
+  overflow: auto;
+  padding: 2px;
+}
+
+.page.active {
+  display: block;
+}
+
+.page-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.page-inner.narrow {
+  max-width: 920px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.white-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: var(--shadow-card);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.card-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.hero-card {
+  background: linear-gradient(90deg, #FF9E4D, var(--orange-strong));
+  color: #fff;
+  border: 0;
+  box-shadow: var(--shadow-orange);
+}
+
+.hero-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hero-head h1 {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.hero-head p {
+  font-size: 12px;
+  opacity: 0.92;
+}
+
+.hero-pct {
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.hero-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.28);
+  overflow: hidden;
+}
+
+.hero-bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: #fff;
+  border-radius: 4px;
+  transition: width 0.3s;
+}
+
+.hero-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.hero-actions .primary-btn,
+.hero-actions .ghost-btn {
+  flex: none;
+  min-width: 110px;
+}
+
+.hero-actions .ghost-btn {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+.home-grid,
+.mine-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.home-grid {
+  grid-template-columns: 320px minmax(0, 1fr);
+}
+
+.page-graph-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 16px;
+  height: 100%;
+}
+
+.canvas-card,
+.node-card {
+  min-height: 0;
+}
+
+.canvas-card .canvas-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #F7FCF9 0%, #F5F8FE 100%);
+  border: 1px solid var(--border);
+}
+
+html[data-theme="dark"] .canvas-card .canvas-body {
+  background: linear-gradient(135deg, #17222D 0%, #182431 100%);
+}
+
+.node-card {
+  overflow: auto;
+}
+
+.graph-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.canvas-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.galaxy-page-card {
+  height: 100%;
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+}
+
+.galaxy-page-card .galaxy-area {
+  position: absolute;
+  inset: 0;
+}
+
+.source-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.source-grid a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.home-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bottom-tabs {
+  display: none;
+}
+
+@media (max-width: 1180px) {
+  .home-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .page-graph-layout {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+}
+
+@media (max-width: 900px) {
+  .shell {
+    padding: 10px;
+    gap: 10px;
+    height: calc(100vh - 72px - 52px - 64px);
+  }
+
+  .side-nav {
+    display: none;
+  }
+
+  .bottom-tabs {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 64px;
+    background: rgba(255, 255, 255, 0.96);
+    border-top: 1px solid var(--border);
+    z-index: 30;
+  }
+
+  html[data-theme="dark"] .bottom-tabs {
+    background: rgba(27, 37, 48, 0.96);
+  }
+
+  .tab {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    border: 0;
+    background: transparent;
+    color: var(--text-tertiary);
+    font-size: 10px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  .tab span {
+    font-size: 18px;
+    line-height: 1;
+  }
+
+  .tab.active {
+    color: var(--blue-strong);
+    font-weight: 600;
+    background: var(--blue-soft);
+    border-radius: 12px;
+  }
+
+  .mine-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .page-graph-layout {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .canvas-card {
+    min-height: 560px;
+  }
+
+  .node-card {
+    max-height: 520px;
+  }
+}
+
+@media (max-width: 560px) {
+  .topbar {
+    height: auto;
+    padding: 10px 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .shell {
+    height: calc(100vh - 130px - 64px);
+    min-height: 480px;
+    padding: 8px;
+  }
+
+  .hero-actions {
+    flex-wrap: wrap;
+  }
+
+  .hero-actions .primary-btn,
+  .hero-actions .ghost-btn {
+    min-width: 100%;
+  }
+
+  .topbar-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .goal-pill {
+    display: none;
+  }
+}

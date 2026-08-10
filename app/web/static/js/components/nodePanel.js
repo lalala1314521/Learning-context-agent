@@ -24,7 +24,10 @@ export async function showNodes(data) {
   document.getElementById("nodeEmpty").hidden = Boolean(currentNodes.length || !graph.id);
   document.getElementById("nodeForm").hidden = !graph.id;
   document.getElementById("nodeList").hidden = currentNodes.length === 0;
-  document.getElementById("nodeCount").textContent = `${currentNodes.length} 节点`;
+  ["nodeCount", "nodeCount2"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = `${currentNodes.length} 节点`;
+  });
   document.getElementById("nodeGraphMeta").textContent = `图: ${graph.id || ""}`;
   renderNodes(currentNodes);
   const highlightId = window.__highlightNode;

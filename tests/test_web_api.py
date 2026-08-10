@@ -39,7 +39,7 @@ class WebApiTestCase(unittest.TestCase):
         index = self.client.get("/")
         self.assertEqual(index.status_code, 200)
         self.assertIn("学习脉络智能体", index.text)
-        self.assertIn('data-view="galaxy"', index.text)
+        self.assertIn('data-page="galaxy"', index.text)
         galaxy_js = self.client.get("/static/js/components/galaxyPanel.js")
         self.assertEqual(galaxy_js.status_code, 200)
         self.assertIn("showGalaxy", galaxy_js.text)

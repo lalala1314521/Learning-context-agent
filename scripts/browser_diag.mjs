@@ -118,45 +118,22 @@ ws.addEventListener("open", async () => {
     raw: document.querySelector("#diagramArea .raw-code")?.textContent?.slice(0, 80) || "",
   })`);
 
-  const drag = await evaluate(`(() => {
-    const root = document.documentElement;
-    const splitter = document.querySelector(".splitter-left");
-    const rect = splitter.getBoundingClientRect();
-    const x = rect.left + rect.width / 2;
-    const y = rect.top + rect.height / 2;
-    const before = parseFloat(getComputedStyle(document.querySelector(".input-panel")).width);
-    splitter.dispatchEvent(new PointerEvent("pointerdown", { clientX: x, clientY: y, bubbles: true, pointerId: 1 }));
-    document.dispatchEvent(new PointerEvent("pointermove", { clientX: x + 90, clientY: y, bubbles: true, pointerId: 1 }));
-    document.dispatchEvent(new PointerEvent("pointerup", { clientX: x + 90, clientY: y, bubbles: true, pointerId: 1 }));
-    const after = parseFloat(getComputedStyle(document.querySelector(".input-panel")).width);
-    const grid = document.querySelector(".grid-main");
-    return {
-      before,
-      after,
-      gridVar: grid.style.getPropertyValue("--left-w"),
-      columns: getComputedStyle(grid).gridTemplateColumns,
-    };
+  const pages = await evaluate(`(async () => {
+    const results = {};
+    for (const name of ["home", "generate", "graphs", "galaxy", "review", "mine"]) {
+      const btn = document.querySelector('[data-page="' + name + '"]');
+      btn?.click();
+      if (name === "galaxy") await new Promise((resolve) => setTimeout(resolve, 1200));
+      results[name] = {
+        active: document.getElementById("page-" + name)?.classList.contains("active") || false,
+        navActive: btn?.classList.contains("active") || false,
+        galaxySvg: name === "galaxy" ? !!document.querySelector("#galaxyArea svg") : null,
+      };
+    }
+    return results;
   })()`);
 
-  const collapsed = await evaluate(`(() => {
-    const btn = document.querySelector('[data-collapse="input"]');
-    btn?.click();
-    const panel = document.querySelector(".input-panel");
-    const afterClick = {
-      collapsed: panel?.classList.contains("collapsed"),
-      width: panel ? parseFloat(getComputedStyle(panel).width) : 0,
-      buttonVisible: btn ? getComputedStyle(btn).display !== "none" && btn.offsetWidth > 0 : false,
-      gridVar: document.querySelector(".grid-main").style.getPropertyValue("--left-w"),
-      columns: getComputedStyle(document.querySelector(".grid-main")).gridTemplateColumns,
-    };
-    btn?.click();
-    return {
-      afterClick,
-      expanded: !panel?.classList.contains("collapsed"),
-    };
-  })()`);
-
-  console.log(JSON.stringify({ initial, opened, force, outline, mermaid, drag, collapsed, errors: consoleMessages }, null, 2));
+  console.log(JSON.stringify({ initial, opened, force, outline, mermaid, pages, errors: consoleMessages }, null, 2));
   ws.close();
   edge.kill();
   try {

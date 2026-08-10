@@ -2,16 +2,25 @@ import { api } from "./api.js";
 import { initAskPanel } from "./components/askPanel.js";
 import { emit, on } from "./bus.js";
 import { initCanvasPanel, showGraph } from "./components/canvasPanel.js";
-import { initGalaxyPanel, refreshGalaxy } from "./components/galaxyPanel.js";
+import {
+  hideGalaxy,
+  initGalaxyPanel,
+  refreshGalaxy,
+  showGalaxy,
+} from "./components/galaxyPanel.js";
 import { initHistoryPanel, refreshHistory } from "./components/historyPanel.js";
 import { initInputPanel } from "./components/inputPanel.js";
+import { openModal } from "./components/modal.js";
 import { initNodePanel, showNodes } from "./components/nodePanel.js";
 import { initReviewPanel, refreshReview } from "./components/reviewPanel.js";
-import { initSplitLayout } from "./components/splitLayout.js";
 import { initStatusBar, setStatus, toast } from "./components/statusBar.js";
+
+let currentPage = "home";
+let galaxyDirty = false;
 
 function boot() {
   initStatusBar();
+  initPageNavigation();
   initInputPanel();
   initHistoryPanel();
   initCanvasPanel();
@@ -19,11 +28,12 @@ function boot() {
   initNodePanel();
   initReviewPanel();
   initAskPanel();
-  initSplitLayout();
+  initSourceActions();
 
   document.addEventListener("review-updated", () => {
-    refreshGalaxy();
+    galaxyDirty = true;
     refreshStats();
+    if (currentPage === "galaxy") refreshGalaxy();
   });
 
   const root = document.documentElement;
@@ -54,11 +64,12 @@ function boot() {
       }
       showGraph(data);
       showNodes(data);
-      refreshGalaxy();
+      galaxyDirty = true;
       showReport(data.concept_report);
       refreshHistory();
       refreshReview();
       refreshStats();
+      showPage("graphs");
       setStatus(`已生成 ${data.id}`);
       if (data.auto_links && data.auto_links.length) {
         toast(`已自动关联 ${data.auto_links.length} 个跨脉络知识点`);
@@ -93,6 +104,7 @@ function boot() {
       showNodes(data);
       refreshReview();
       refreshStats();
+      showPage("graphs");
       setStatus(`已打开 ${graphId}`);
     } catch (error) {
       toast(error.message, true);
@@ -102,6 +114,82 @@ function boot() {
 
   refreshHistory();
   refreshStats();
+  showPage("home");
+}
+
+function initPageNavigation() {
+  document.querySelectorAll("[data-page]").forEach((button) => {
+    button.addEventListener("click", () => showPage(button.dataset.page));
+  });
+  document.querySelectorAll("[data-go]").forEach((button) => {
+    button.addEventListener("click", () => showPage(button.dataset.go));
+  });
+}
+
+async function showPage(name) {
+  currentPage = name;
+  document.querySelectorAll(".page").forEach((page) => {
+    page.classList.toggle("active", page.id === `page-${name}`);
+  });
+  document.querySelectorAll("[data-page]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.page === name);
+  });
+  if (name === "galaxy") {
+    if (galaxyDirty) {
+      galaxyDirty = false;
+      await showGalaxy(true);
+    } else {
+      await showGalaxy();
+    }
+  } else {
+    hideGalaxy();
+  }
+}
+
+function initSourceActions() {
+  document.getElementById("vaultImportBtn")?.addEventListener("click", () => {
+    openModal({
+      title: "导入 Obsidian",
+      fields: [
+        { key: "path", label: "Vault 目录路径", placeholder: "C:\\notes\\my-vault" },
+        { key: "limit", label: "最多导入数量（可选）" },
+      ],
+      confirmText: "开始导入",
+      onConfirm: async (values) => {
+        const result = await api("/sources/import-vault", {
+          method: "POST",
+          body: { path: values.path, limit: values.limit ? Number(values.limit) : null },
+        });
+        showSourceResult(`已导入 ${result.imported} 个 Markdown 文件`);
+      },
+    });
+  });
+
+  document.getElementById("videoSubtitleBtn")?.addEventListener("click", () => {
+    openModal({
+      title: "视频字幕",
+      fields: [
+        { key: "url", label: "字幕文件 URL 或 YouTube 链接" },
+      ],
+      confirmText: "获取字幕",
+      onConfirm: async (values) => {
+        const result = await api("/sources/video-subtitle", {
+          method: "POST",
+          body: { url: values.url },
+        });
+        document.getElementById("contentInput").value = result.content;
+        showSourceResult(`已获取字幕：${result.source_name}，${result.preview?.blocks || 1} 块`);
+        showPage("generate");
+      },
+    });
+  });
+}
+
+function showSourceResult(message) {
+  const el = document.getElementById("sourceResult");
+  if (!el) return;
+  el.textContent = message;
+  el.hidden = false;
 }
 
 async function pollJob(jobId) {
@@ -170,6 +258,10 @@ async function refreshStats() {
     const pct = total ? Math.round((mastered / total) * 100) : 0;
     document.getElementById("goalBar").style.width = `${pct}%`;
     document.getElementById("goalPct").textContent = `${pct}%`;
+    const homeBar = document.getElementById("homeGoalBar");
+    const homePct = document.getElementById("homeGoalPct");
+    if (homeBar) homeBar.style.width = `${pct}%`;
+    if (homePct) homePct.textContent = `${pct}%`;
     updateMastery(pct, total);
   } catch {
     // 统计加载失败不阻塞界面

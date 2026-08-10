@@ -8,7 +8,7 @@ let current = null;
 let currentNodes = [];
 let currentLinks = [];
 let currentConceptLinks = [];
-let view = "galaxy";
+let view = "force";
 let zoom = 1;
 
 export function initCanvasPanel() {

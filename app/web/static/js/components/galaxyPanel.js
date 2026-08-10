@@ -26,7 +26,6 @@ export function initGalaxyPanel() {
     setStatus("请点击星图选择一个终点概念");
   });
   document.getElementById("pathExplainBtn").addEventListener("click", explainPath);
-  showGalaxy();
 }
 
 export async function showGalaxy(force = false) {
