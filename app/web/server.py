@@ -15,6 +15,15 @@ setup_logging()
 BASE_DIR = Path(__file__).resolve().parent
 
 
+class NoCacheStaticFiles(StaticFiles):
+    """静态资源禁用浏览器缓存，保证前端模块每次拉取最新版本。"""
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        return response
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="学习脉络智能体 WebUI",
@@ -51,7 +60,7 @@ def create_app() -> FastAPI:
     app.include_router(router, prefix="/api/v1")
     app.mount(
         "/static",
-        StaticFiles(directory=BASE_DIR / "static"),
+        NoCacheStaticFiles(directory=BASE_DIR / "static"),
         name="static",
     )
 
