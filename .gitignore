@@ -1,0 +1,30 @@
+# Local environment and secrets
+.env
+.venv/
+
+# IDE / editor
+.idea/
+.vscode/
+
+# Runtime data and generated files
+data/*.db
+data/*.db-*
+data/uploads/
+data/edge-diag-profile/
+models/
+.workbuddy/
+
+# Python cache and build artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
+webui.err.log
+webui.out.log

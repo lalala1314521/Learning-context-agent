@@ -1,0 +1,303 @@
+"""Learning Context Agent 冒烟测试（不依赖网络 / LLM）。"""
+
+import os
+import pathlib
+import tempfile
+import unittest
+from unittest import mock
+
+from app.config import config
+from app.graph.builder import build_graph
+from app.graph.mermaid_parser import parse_graph_structure
+from app.memory.database import init_db
+from app.memory import repository
+
+
+class TempDbTestCase(unittest.TestCase):
+    def setUp(self):
+        fd, self.db_path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        self._original_path = config.DATABASE_PATH
+        config.DATABASE_PATH = self.db_path
+        init_db()
+
+    def tearDown(self):
+        config.DATABASE_PATH = self._original_path
+        try:
+            os.remove(self.db_path)
+        except OSError:
+            pass
+
+
+class ParserTestCase(unittest.TestCase):
+    def test_flowchart_parse(self):
+        flow = """graph TD
+A[机器学习] --> B[监督学习]
+A --> C[无监督学习]
+B --> D[分类]
+B --- E[回归]
+"""
+        nodes = parse_graph_structure(flow, "")
+        by_label = {n["label"]: n for n in nodes}
+        self.assertEqual(len(nodes), 5)
+        self.assertEqual(by_label["分类"]["parent_id"], by_label["监督学习"]["id"])
+        self.assertIn(by_label["回归"]["id"], by_label["监督学习"]["related_nodes"])
+        self.assertIn(by_label["监督学习"]["id"], by_label["回归"]["related_nodes"])
+
+    def test_mindmap_parse(self):
+        mindmap = """mindmap
+  root[深度学习]
+    监督
+      分类
+    无监督
+      聚类
+"""
+        nodes = parse_graph_structure(mindmap, "")
+        by_label = {n["label"]: n for n in nodes}
+        self.assertEqual(len(nodes), 5)
+        self.assertEqual(by_label["分类"]["parent_id"], by_label["监督"]["id"])
+        self.assertEqual(by_label["聚类"]["parent_id"], by_label["无监督"]["id"])
+
+    def test_markdown_parse(self):
+        md = """# 机器学习
+- 监督学习
+  - 分类
+## 无监督学习
+- 聚类
+"""
+        nodes = parse_graph_structure("", md)
+        by_label = {n["label"]: n for n in nodes}
+        self.assertEqual(len(nodes), 5)
+        self.assertEqual(by_label["分类"]["parent_id"], by_label["监督学习"]["id"])
+        self.assertEqual(by_label["聚类"]["parent_id"], by_label["无监督学习"]["id"])
+
+
+class RepositoryTestCase(TempDbTestCase):
+    def test_crud_and_search(self):
+        graph_id = repository.create_graph(
+            title="机器学习", graph_type="mermaid_tree",
+            markdown_outline="# 机器学习\n- 监督学习",
+            raw_content="监督学习与无监督学习",
+        )
+        node_a = repository.add_node(graph_id, "监督学习", node_id="n1")
+        node_b = repository.add_node(
+            graph_id, "分类", parent_id=node_a,
+            related_nodes=["n1"], node_id="n2",
+        )
+        self.assertEqual(node_a, "n1")
+        self.assertEqual(node_b, "n2")
+
+        nodes = repository.get_nodes(graph_id)
+        self.assertEqual(len(nodes), 2)
+        by_id = {n["id"]: n for n in nodes}
+        self.assertEqual(by_id["n2"]["related_nodes"], ["n1"])
+
+        hits = repository.search_graphs("无监督学习")
+        self.assertEqual(hits[0]["id"], graph_id)
+
+        self.assertTrue(repository.update_node("n2", label="新分类"))
+        self.assertEqual(repository.get_nodes(graph_id)[1]["label"], "新分类")
+
+        self.assertTrue(repository.delete_node("n2"))
+        self.assertEqual(len(repository.get_nodes(graph_id)), 1)
+
+
+class _FakeResponse:
+    def __init__(self, content):
+        self.content = content
+
+
+class _FakeLLM:
+    def __init__(self, contents):
+        self._contents = list(contents)
+
+    def invoke(self, messages):
+        return _FakeResponse(self._contents.pop(0))
+
+
+def _initial_state(user_input: str, **overrides) -> dict:
+    state = {
+        "messages": [],
+        "user_input": user_input,
+        "input_type": "text",
+        "parsed_content": "",
+        "source_name": "",
+        "output_format": "both",
+        "web_search_enabled": False,
+        "supplementary_info": "",
+        "current_graph_id": "",
+        "graph_mermaid": "",
+        "graph_markdown": "",
+        "node_payloads": "",
+        "memory_snapshot_id": "",
+        "action": "",
+        "error": "",
+    }
+    state.update(overrides)
+    return state
+
+
+class GraphFlowTestCase(TempDbTestCase):
+    def test_structured_node_payloads(self):
+        generate_output = """【Mermaid】:
+```mermaid
+graph TD
+A[机器学习] --> B[监督学习]
+```
+【Markdown大纲】:
+# 机器学习
+- 监督学习
+【节点数据】:
+```json
+[
+  {"id": "A", "label": "机器学习", "note": "从数据中学习规律的学科", "node_type": "concept", "parent_id": "", "related_nodes": []},
+  {"id": "B", "label": "监督学习", "note": "使用带标签数据训练", "node_type": "method", "parent_id": "A", "related_nodes": []}
+]
+```
+"""
+        fake_llm = _FakeLLM([
+            generate_output,
+            '{"summary": "机器学习摘要", "key_points": ["监督学习"]}',
+        ])
+        graph = build_graph()
+        with mock.patch("app.graph.nodes._get_llm", return_value=fake_llm):
+            result = graph.invoke(_initial_state("机器学习"), {
+                "configurable": {"thread_id": "payload-test"},
+            })
+        nodes = repository.get_nodes(result["current_graph_id"])
+        by_label = {n["label"]: n for n in nodes}
+        self.assertEqual(by_label["机器学习"]["note"], "从数据中学习规律的学科")
+        self.assertEqual(by_label["机器学习"]["node_type"], "concept")
+        self.assertEqual(by_label["监督学习"]["note"], "使用带标签数据训练")
+        self.assertEqual(by_label["监督学习"]["node_type"], "method")
+        self.assertEqual(
+            by_label["监督学习"]["parent_id"],
+            by_label["机器学习"]["id"],
+        )
+
+    def test_generate_save_nodes_and_memory(self):
+        generate_output = """【图表类型】: graph TD
+【Mermaid】:
+```mermaid
+graph TD
+A[机器学习] --> B[监督学习]
+A --> C[无监督学习]
+B --- D[关联概念]
+```
+【Markdown大纲】:
+# 机器学习
+- 监督学习
+  - 关联概念
+"""
+        fake_llm = _FakeLLM([
+            generate_output,
+            '{"summary": "机器学习脉络摘要", "key_points": ["监督学习", "无监督学习"]}',
+        ])
+        graph = build_graph()
+        with mock.patch("app.graph.nodes._get_llm", return_value=fake_llm):
+            result = graph.invoke(_initial_state("请生成机器学习脉络"), {
+                "configurable": {"thread_id": "flow-test"},
+            })
+
+        self.assertFalse(result.get("error"))
+        graph_id = result["current_graph_id"]
+        self.assertTrue(graph_id)
+        self.assertTrue(result["memory_snapshot_id"])
+        nodes = repository.get_nodes(graph_id)
+        by_label = {n["label"]: n for n in nodes}
+        self.assertEqual(len(nodes), 4)
+        self.assertEqual(by_label["关联概念"]["related_nodes"], [by_label["监督学习"]["id"]])
+
+        stored = repository.get_graph(graph_id)
+        self.assertTrue(stored["mermaid_code"].lower().startswith("graph td"))
+
+    def test_manage_and_open_flow(self):
+        graph_id = repository.create_graph(title="测试脉络", graph_type="markdown")
+        graph = build_graph()
+        result = graph.invoke(_initial_state(f"添加节点 {graph_id} 新知识点"), {
+            "configurable": {"thread_id": "manage-test"},
+        })
+        self.assertEqual(result["action"], "manage_graph")
+        self.assertIn("已添加节点", result["parsed_content"])
+
+        nodes = repository.get_nodes(graph_id)
+        self.assertEqual(len(nodes), 1)
+        node_id = nodes[0]["id"]
+
+        result = graph.invoke(_initial_state(f"更新节点 {node_id} 修改后的知识点"), {
+            "configurable": {"thread_id": "manage-test"},
+        })
+        self.assertIn("更新成功", result["parsed_content"])
+
+        result = graph.invoke(_initial_state(f"打开 {graph_id}"), {
+            "configurable": {"thread_id": "open-test"},
+        })
+        self.assertEqual(result["action"], "get_graph")
+        self.assertIn("修改后的知识点", result["parsed_content"])
+
+    def test_output_format_filter(self):
+        generate_output = """【图表类型】: mindmap
+【Mermaid】:
+```mermaid
+mindmap
+  root[深度学习]
+    监督学习
+```
+【Markdown大纲】:
+# 深度学习
+- 监督学习
+"""
+        fake_llm = _FakeLLM([
+            generate_output,
+            '{"summary": "深度学习摘要", "key_points": ["监督学习"]}',
+        ])
+        graph = build_graph()
+        with mock.patch("app.graph.nodes._get_llm", return_value=fake_llm):
+            result = graph.invoke(_initial_state("只要 Mermaid", output_format="mermaid"), {
+                "configurable": {"thread_id": "format-test"},
+            })
+        self.assertTrue(result["graph_mermaid"])
+        self.assertEqual(result["graph_markdown"], "")
+        stored = repository.get_graph(result["current_graph_id"])
+        self.assertFalse(stored["markdown_outline"])
+
+    def test_batch_files_flow(self):
+        fd1, path1 = tempfile.mkstemp(suffix=".txt")
+        os.close(fd1)
+        fd2, path2 = tempfile.mkstemp(suffix=".txt")
+        os.close(fd2)
+        pathlib.Path(path1).write_text("监督学习内容", encoding="utf-8")
+        pathlib.Path(path2).write_text("无监督学习内容", encoding="utf-8")
+        self.addCleanup(os.remove, path1)
+        self.addCleanup(os.remove, path2)
+
+        fake_llm = _FakeLLM([
+            "【Mermaid】:\n```mermaid\ngraph TD\nA[内容]\n```\n【Markdown大纲】:\n# 内容\n- 要点\n",
+            '{"summary": "批量文件摘要", "key_points": ["监督学习"]}',
+        ])
+        graph = build_graph()
+        with mock.patch("app.graph.nodes._get_llm", return_value=fake_llm):
+            result = graph.invoke(_initial_state(f"files:{path1};{path2}"), {
+                "configurable": {"thread_id": "batch-test"},
+            })
+        self.assertFalse(result.get("error"))
+        self.assertEqual(result["parsed_content"].count("### 文件:"), 2)
+        stored = repository.get_graph(result["current_graph_id"])
+        self.assertIn("监督学习内容", stored["raw_content"])
+        self.assertIn("无监督学习内容", stored["raw_content"])
+
+    def test_review_search_flow(self):
+        repository.create_graph(
+            title="线性代数", graph_type="markdown",
+            markdown_outline="# 线性代数\n- 矩阵",
+        )
+        graph = build_graph()
+        result = graph.invoke(_initial_state("回顾 线性代数"), {
+            "configurable": {"thread_id": "review-test"},
+        })
+        self.assertEqual(result["action"], "search_graphs")
+        self.assertIn("线性代数", result["parsed_content"])
+
+
+if __name__ == "__main__":
+    unittest.main()

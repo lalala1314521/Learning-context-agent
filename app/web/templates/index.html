@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="paper">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>学习脉络智能体</title>
+<link rel="stylesheet" href="/static/css/v3.css">
+<script src="/static/vendor/mermaid.min.js"></script>
+<script src="/static/vendor/d3.v7.min.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-logo" aria-hidden="true"></div>
+    <div class="brand-text">
+      <span class="brand-mark">学习脉络智能体</span>
+      <span class="brand-stamp">LEARNING CONTEXT AGENT</span>
+    </div>
+  </div>
+  <div class="goal-pill" id="goalPill">
+    <span class="goal-label">今日复习目标</span>
+    <div class="goal-bar"><i id="goalBar"></i></div>
+    <span class="goal-pct" id="goalPct">0%</span>
+  </div>
+  <div class="topbar-actions">
+    <label class="toggle"><input type="checkbox" id="themeToggle"><span>暗色模式</span></label>
+    <label class="toggle"><input type="checkbox" id="webSearchToggle"><span>联网搜索</span></label>
+    <label class="select-label">输出格式
+      <select id="formatSelect">
+        <option value="both" selected>Mermaid + Markdown</option>
+        <option value="mermaid">仅 Mermaid</option>
+        <option value="markdown">仅 Markdown</option>
+      </select>
+    </label>
+    <button id="exportBtn" class="ghost-btn" title="导出当前脉络">导出</button>
+  </div>
+</header>
+
+<main class="grid-main">
+  <section class="panel input-panel" aria-label="输入与资源">
+    <div class="panel-head">
+      <h2>输入与资源</h2>
+      <div class="head-actions">
+        <span class="panel-tag">SOURCE</span>
+        <button type="button" class="collapse-btn" data-collapse="input" title="折叠">‹</button>
+      </div>
+    </div>
+    <div class="panel-body">
+      <textarea id="contentInput" placeholder="粘贴文本，或输入 file:路径 / url:网址 后直接生成..."></textarea>
+      <div class="dropzone" id="dropZone">
+        <input type="file" id="fileInput" hidden multiple accept=".txt,.md,.pdf,.docx,.ipynb">
+        <button type="button" id="pickFileBtn" class="ghost-btn small">选择文件</button>
+        <span>或拖入 TXT / MD / PDF / DOCX / IPYNB</span>
+      </div>
+      <div class="url-row">
+        <input type="text" id="urlInput" placeholder="https://... 抓取网页正文">
+        <button type="button" id="fetchUrlBtn" class="ghost-btn small">抓取</button>
+      </div>
+      <div id="parseMeta" class="parse-meta" hidden></div>
+      <div class="action-row">
+        <button type="button" id="generateBtn" class="primary-btn">生成脉络</button>
+        <button type="button" id="clearBtn" class="ghost-btn">清空</button>
+      </div>
+      <label class="toggle"><input type="checkbox" id="autoLinkToggle" checked><span>自动关联已有脉络</span></label>
+      <div class="stat-row">
+        <div class="stat-card stat-blue"><span class="num" id="statGraphs">0</span><span class="lbl">张脉络</span></div>
+        <div class="stat-card stat-mint"><span class="num" id="statNodes">0</span><span class="lbl">个节点</span></div>
+        <div class="stat-card stat-orange"><span class="num" id="statReview">0</span><span class="lbl">待复习</span></div>
+      </div>
+    </div>
+  </section>
+  <div class="splitter splitter-left" data-resize="left"></div>
+
+  <section class="panel canvas-panel" aria-label="脉络画布">
+    <div class="panel-head">
+      <h2 id="canvasTitle">脉络画布</h2>
+      <div class="head-actions">
+        <div class="segmented" role="tablist" aria-label="视图">
+          <button type="button" class="seg" data-view="force">图谱</button>
+          <button type="button" class="seg active" data-view="mermaid">图形</button>
+          <button type="button" class="seg" data-view="markdown">大纲</button>
+        </div>
+        <div class="zoom-tools">
+          <button type="button" class="ghost-btn small" id="zoomOutBtn" title="缩小">−</button>
+          <span id="zoomLevel">100%</span>
+          <button type="button" class="ghost-btn small" id="zoomInBtn" title="放大">+</button>
+          <button type="button" class="ghost-btn small" id="fitBtn" title="适应画布">适应</button>
+          <button type="button" class="ghost-btn small" id="fullscreenBtn" title="全屏">全屏</button>
+        </div>
+      </div>
+    </div>
+    <div class="panel-body canvas-body">
+      <div id="emptyState" class="empty-state">
+        <div class="empty-reel"></div>
+        <p>输入内容后点击“生成脉络”</p>
+      </div>
+      <div id="canvasLoading" class="loading" hidden><span class="spinner"></span>生成中，请稍候...</div>
+      <div id="viewport" class="viewport" hidden>
+        <div id="diagramArea" class="diagram-area"></div>
+      </div>
+      <div id="forceArea" class="force-area" hidden></div>
+      <div id="outlineArea" class="outline-area" hidden></div>
+    </div>
+  </section>
+  <div class="splitter splitter-right" data-resize="right"></div>
+
+  <section class="panel node-panel" aria-label="节点与关联">
+    <div class="panel-head">
+      <h2>节点与关联</h2>
+      <div class="head-actions">
+        <span class="panel-tag" id="nodeCount">0 节点</span>
+        <button type="button" class="collapse-btn" data-collapse="node" title="折叠">›</button>
+      </div>
+    </div>
+    <div class="panel-body node-body">
+      <div class="mastery-card">
+        <svg class="ring" id="masteryRing" viewBox="0 0 44 44" aria-hidden="true">
+          <circle cx="22" cy="22" r="18" stroke="#E8EFEA" stroke-width="5" fill="none"></circle>
+          <path id="masteryArc" d="M22 4a18 18 0 0 1 15.2 8.5" stroke="#10B981" stroke-width="5" stroke-linecap="round" fill="none"></path>
+        </svg>
+        <div class="mastery-info">
+          <span class="m-label">本图掌握度</span>
+          <div class="m-bar"><i id="masteryBar"></i></div>
+          <span class="m-hint" id="masteryHint">完成复习后可提升</span>
+        </div>
+      </div>
+      <div id="nodeEmpty" class="empty-state small">打开一张脉络图后管理节点</div>
+      <div id="nodeForm" class="node-form" hidden>
+        <div class="node-current" id="nodeGraphMeta"></div>
+        <input type="text" id="nodeLabelInput" placeholder="节点文本">
+        <div class="node-form-row">
+          <input type="text" id="nodeParentInput" placeholder="父节点 ID（可选）">
+          <input type="text" id="nodeRelatedInput" placeholder="关联 ID，逗号分隔">
+        </div>
+        <button type="button" id="addNodeBtn" class="primary-btn small">添加节点</button>
+      </div>
+      <div id="nodeList" class="node-list" hidden></div>
+    </div>
+  </section>
+
+  <div class="splitter splitter-bottom" data-resize="bottom"></div>
+
+  <section class="panel history-panel" aria-label="历史与记忆">
+    <div class="history-left">
+      <div class="panel-head"><h2>脉络历史</h2><button id="refreshBtn" class="ghost-btn small">刷新</button></div>
+      <div class="search-row">
+        <input type="text" id="searchInput" placeholder="搜索 / 回顾主题">
+        <button id="searchBtn" class="ghost-btn small">检索</button>
+      </div>
+      <div id="graphList" class="graph-list"></div>
+    </div>
+    <div class="review-panel">
+      <div class="panel-head">
+        <h2>今日复习</h2>
+        <div class="head-actions">
+          <span class="panel-tag" id="reviewDueCount">0 待复习</span>
+          <span class="panel-tag" id="reviewDoneCount">0 已复习</span>
+        </div>
+      </div>
+      <div id="reviewList" class="review-list"></div>
+    </div>
+    <div class="ask-panel">
+      <div class="panel-head"><h2>知识问答</h2><span class="panel-tag">ASK</span></div>
+      <div class="ask-body">
+        <div class="search-row">
+          <input type="text" id="askInput" placeholder="提问：知识库里有什么 / 还缺什么">
+          <button type="button" id="askBtn" class="ghost-btn small">提问</button>
+        </div>
+        <div id="askResult" class="ask-result">
+          <div class="empty-state small">问一个关于已有知识或未知知识的问题</div>
+        </div>
+      </div>
+    </div>
+    <div class="history-right">
+      <div class="panel-head"><h2>长期记忆</h2><span class="panel-tag" id="memoryCount">0 条</span></div>
+      <div id="memoryList" class="memory-list"></div>
+    </div>
+  </section>
+</main>
+
+<footer class="statusbar">
+  <div class="status-left"><span id="statusDot" class="dot"></span><span id="statusText">就绪</span></div>
+  <div class="status-right">
+    <span id="breadcrumb"></span>
+    <span id="statusGraph"></span>
+    <span id="shortcutHint">Ctrl + Enter 生成 · Ctrl + 滚轮缩放</span>
+  </div>
+</footer>
+
+<div id="toast" class="toast" hidden></div>
+<script type="module" src="/static/js/app.js"></script>
+</body>
+</html>
