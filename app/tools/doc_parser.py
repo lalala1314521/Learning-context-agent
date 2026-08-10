@@ -3,6 +3,25 @@
 from pathlib import Path
 
 
+def _validate_magic(fp: Path, suffix: str) -> str | None:
+    if suffix == ".pdf":
+        with open(fp, "rb") as fh:
+            if not fh.read(5).startswith(b"%PDF-"):
+                return "文件内容不是有效的 PDF"
+    elif suffix == ".docx":
+        with open(fp, "rb") as fh:
+            head = fh.read(4)
+            if not head.startswith((b"PK\x03\x04", b"PK\x05\x06")):
+                return "文件内容不是有效的 DOCX"
+    elif suffix in (".txt", ".md", ".py", ".java", ".js", ".ts", ".html",
+                    ".css", ".xml", ".json", ".yaml", ".yml", ".ipynb"):
+        with open(fp, "rb") as fh:
+            raw = fh.read(4096)
+            if b"\x00" in raw:
+                return "文本文件包含二进制内容"
+    return None
+
+
 def parse_document(file_path: str) -> dict:
     """解析文档，返回 title, content, file_type。"""
     fp = Path(file_path)
@@ -10,6 +29,12 @@ def parse_document(file_path: str) -> dict:
         return {"title": "", "content": "", "file_type": "", "error": f"文件不存在: {file_path}"}
 
     suffix = fp.suffix.lower()
+    magic_error = _validate_magic(fp, suffix)
+    if magic_error:
+        return {
+            "title": title, "content": "", "file_type": suffix,
+            "error": magic_error,
+        }
     title = fp.stem
     try:
         if suffix in (".txt", ".md", ".py", ".java", ".cpp", ".c", ".h", ".js", ".ts", ".html", ".css", ".xml", ".json", ".yaml", ".yml"):

@@ -6,7 +6,15 @@ from app.config import config
 from app.graph.mermaid_parser import parse_graph_structure
 from app.graph.state import AgentState
 from app.memory.repository import add_node as repo_add_node, save_memory_snapshot
+from app.memory.repository import save_content_chunks
+from app.memory.embeddings import embed_texts
 from app.services.concept_alignment import align_graph_nodes
+from app.services.chunking import chunk_content, classify_content
+from app.services.longtext import (
+    create_book_subgraphs,
+    map_reduce,
+    prepare_book_payload,
+)
 from app.prompts.system import SYSTEM_PROMPT
 from app.prompts.graph_gen import GRAPH_GEN_PROMPT, MEMORY_SUMMARY_PROMPT
 from app.tools.web_search import search_web
@@ -80,7 +88,7 @@ def parse_content_node(state: AgentState) -> dict:
             else:
                 parts.append(result["content"])
             source_name = result.get("title") or file_path
-        content = "\n\n".join(parts)[:config.MAX_CONTENT_LENGTH]
+        content = "\n\n".join(parts)
         return {"parsed_content": content, "source_name": source_name}
     elif action == "parse_url":
         raw = _strip_prefix(user_input, ("urls:", "批量网址:", "url:", "网址:", "/url "))
@@ -97,10 +105,10 @@ def parse_content_node(state: AgentState) -> dict:
             else:
                 parts.append(result["content"])
             source_name = result.get("url") or url
-        content = "\n\n".join(parts)[:config.MAX_CONTENT_LENGTH]
+        content = "\n\n".join(parts)
         return {"parsed_content": content, "source_name": source_name}
     else:
-        return {"parsed_content": user_input[:config.MAX_CONTENT_LENGTH], "source_name": ""}
+        return {"parsed_content": user_input, "source_name": ""}
 
 
 def web_search_node(state: AgentState) -> dict:
@@ -109,6 +117,20 @@ def web_search_node(state: AgentState) -> dict:
         return {"supplementary_info": ""}
     content = state.get("parsed_content", "")
     query = content[:200] if content else state.get("user_input", "")
+    if len(content) > 2000:
+        try:
+            llm = _get_llm()
+            response = llm.invoke([HumanMessage(content=(
+                "请从下面内容提炼 2-5 个用于联网搜索的中文关键词或短语，"
+                "只输出 JSON：{\"query\": \"关键词\"}\n\n"
+                f"{content[:6000]}"
+            ))])
+            text = response.content if hasattr(response, "content") else str(response)
+            data = _extract_json_object(text)
+            if data and data.get("query"):
+                query = str(data["query"]).strip()[:200]
+        except Exception:
+            pass
     if not query:
         return {"supplementary_info": ""}
     results = search_web(query)
@@ -128,6 +150,51 @@ def generate_graph_node(state: AgentState) -> dict:
         return {"graph_mermaid": "", "graph_markdown": "", "error": "没有可解析的内容"}
     if supplementary:
         content = f"{content}\n\n## 联网搜索补充信息\n{supplementary}"
+    tier = classify_content(content)
+    output_format = state.get("output_format", "both")
+    if tier in ("M", "L"):
+        llm = _get_llm() if config.DEEPSEEK_API_KEY else None
+        if tier == "M":
+            result = map_reduce(content, llm=llm)
+            mermaid = result["mermaid"]
+            markdown = result["markdown"]
+            if output_format == "mermaid":
+                markdown = ""
+            elif output_format == "markdown":
+                mermaid = ""
+            return {
+                "graph_mermaid": mermaid,
+                "graph_markdown": markdown,
+                "node_payloads": json.dumps(
+                    result.get("node_payloads", []), ensure_ascii=False
+                ),
+                "long_text_report": result["report"],
+                "long_text_tier": tier,
+                "long_text_chunks": result.get("chunks", []),
+                "chapter_payloads": [],
+                "long_text_chapter_graph_ids": [],
+            }
+        result = prepare_book_payload(
+            content,
+            llm=llm,
+            selected_indices=state.get("selected_chapters") or None,
+        )
+        mermaid = result["mermaid"]
+        markdown = result["markdown"]
+        if output_format == "mermaid":
+            markdown = ""
+        elif output_format == "markdown":
+            mermaid = ""
+        return {
+            "graph_mermaid": mermaid,
+            "graph_markdown": markdown,
+            "node_payloads": "",
+            "long_text_report": result["report"],
+            "long_text_tier": tier,
+            "long_text_chunks": [],
+            "chapter_payloads": result.get("chapter_payloads", []),
+            "long_text_chapter_graph_ids": [],
+        }
     prompt = GRAPH_GEN_PROMPT.replace("{content}", content)
     llm = _get_llm()
     response = llm.invoke([HumanMessage(content=prompt)])
@@ -151,7 +218,6 @@ def generate_graph_node(state: AgentState) -> dict:
                 node_payloads = json.dumps(payloads, ensure_ascii=False)
         except Exception:
             node_payloads = ""
-    output_format = state.get("output_format", "both")
     if output_format == "mermaid":
         markdown = ""
     elif output_format == "markdown":
@@ -196,6 +262,19 @@ def save_graph_node(state: AgentState) -> dict:
         })
     except Exception as e:
         return {"error": f"保存脉络图失败: {e}"}
+    content = state.get("parsed_content", "")
+    chunks = state.get("long_text_chunks") or []
+    if not chunks and state.get("long_text_tier") != "L":
+        chunk_items = chunk_content(content or "")
+        vectors = embed_texts([c["text"] for c in chunk_items])
+        for chunk, vector in zip(chunk_items, vectors):
+            chunk["embedding"] = vector
+        chunks = chunk_items
+    try:
+        if chunks:
+            save_content_chunks(graph_id, chunks)
+    except Exception:
+        pass
     payloads = []
     try:
         raw_payloads = state.get("node_payloads", "")
@@ -232,7 +311,24 @@ def save_graph_node(state: AgentState) -> dict:
                 )
     except Exception:
         pass
-    return {"current_graph_id": graph_id}
+    chapter_ids: list[str] = []
+    if state.get("long_text_tier") == "L":
+        try:
+            subgraphs = create_book_subgraphs(
+                graph_id,
+                state.get("chapter_payloads") or [],
+            )
+            chapter_ids = [item["graph_id"] for item in subgraphs]
+        except Exception as exc:
+            return {
+                "current_graph_id": graph_id,
+                "long_text_chapter_graph_ids": [],
+                "error": f"章节子图生成失败: {exc}",
+            }
+    return {
+        "current_graph_id": graph_id,
+        "long_text_chapter_graph_ids": chapter_ids,
+    }
 
 
 def align_concepts_node(state: AgentState) -> dict:
@@ -245,14 +341,33 @@ def align_concepts_node(state: AgentState) -> dict:
         and config.CONCEPT_LLM_DISAMBIGUATION
         and config.DEEPSEEK_API_KEY
     )
+    graph_ids = [graph_id] + list(
+        state.get("long_text_chapter_graph_ids") or []
+    )
+    merged = {
+        "graph_id": graph_id,
+        "aligned_mentions": 0,
+        "new_concepts": [],
+        "reinforced_concepts": [],
+        "new_links": [],
+        "pending_links": 0,
+        "errors": [],
+    }
     try:
-        result = align_graph_nodes(
-            graph_id,
-            llm=_get_llm() if use_llm else None,
-        )
-        return {"concept_report": result.to_dict()}
+        for gid in graph_ids:
+            result = align_graph_nodes(
+                gid,
+                llm=_get_llm() if use_llm else None,
+            )
+            merged["aligned_mentions"] += result.aligned
+            merged["new_concepts"].extend(result.new_concepts)
+            merged["reinforced_concepts"].extend(result.reinforced)
+            merged["new_links"].extend(result.new_links)
+            merged["pending_links"] += result.pending_links
+            merged["errors"].extend(result.errors)
+        return {"concept_report": merged}
     except Exception as exc:
-        return {"concept_report": {"error": str(exc)}}
+        return {"concept_report": {**merged, "error": str(exc)}}
 
 
 def list_graphs_node(state: AgentState) -> dict:

@@ -60,7 +60,7 @@ export function initInputPanel() {
     try {
       const data = await api("/graphs/parse", { method: "POST", form });
       content.value = data.content;
-      parseMeta.textContent = `已解析：${data.source_name || file.name}`;
+      parseMeta.textContent = `已解析：${data.source_name || file.name}${previewText(data.preview)}`;
       parseMeta.hidden = false;
       setStatus(`已解析 ${data.source_name || file.name}`);
     } catch (error) {
@@ -78,7 +78,7 @@ export function initInputPanel() {
     try {
       const data = await api("/graphs/parse", { method: "POST", form });
       content.value = data.content;
-      parseMeta.textContent = `已抓取：${data.source_name || url}`;
+      parseMeta.textContent = `已抓取：${data.source_name || url}${previewText(data.preview)}`;
       parseMeta.hidden = false;
       setStatus("网页内容已加载");
     } catch (error) {
@@ -99,5 +99,12 @@ export function initInputPanel() {
       web_search_enabled: webSearchToggle.checked,
       auto_link: autoLinkToggle.checked,
     });
+  }
+
+  function previewText(preview) {
+    if (!preview || preview.blocks <= 1) return "";
+    return ` · ${(preview.char_count / 10000).toFixed(1)} 万字 · `
+      + `${preview.blocks} 块 · 预计 ${preview.estimated_minutes} 分钟 / `
+      + `${(preview.estimated_tokens / 10000).toFixed(1)} 万 tokens`;
   }
 }

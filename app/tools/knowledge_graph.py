@@ -11,7 +11,8 @@ from app.memory.repository import (
 def tool_create_graph(title: str, description: str = "", graph_type: str = "auto",
                       mermaid_code: str = "", markdown_outline: str = "",
                       raw_content: str = "", source_type: str = "text",
-                      source_name: str = "", tags: list[str] | None = None) -> str:
+                      source_name: str = "", tags: list[str] | None = None,
+                      parent_graph_id: str | None = None) -> str:
     """创建新的知识脉络图，返回 graph_id。
 
     Args:
@@ -29,7 +30,7 @@ def tool_create_graph(title: str, description: str = "", graph_type: str = "auto
         title=title, description=description, graph_type=graph_type,
         mermaid_code=mermaid_code, markdown_outline=markdown_outline,
         raw_content=raw_content, source_type=source_type, source_name=source_name,
-        tags=tags or [],
+        tags=tags or [], parent_graph_id=parent_graph_id,
     )
 
 

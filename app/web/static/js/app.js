@@ -38,8 +38,12 @@ function boot() {
     const generateBtn = document.getElementById("generateBtn");
     setStatus("正在生成脉络...", "busy");
     generateBtn.disabled = true;
+    const loading = document.getElementById("canvasLoading");
+    loading.hidden = false;
     try {
-      const data = await api("/graphs/generate", { method: "POST", body: payload });
+      const job = await api("/graphs/generate/async", { method: "POST", body: payload });
+      const data = await pollJob(job.id);
+      loading.hidden = true;
       if (data.id) {
         data.links = await api(`/links?graph_id=${encodeURIComponent(data.id)}`);
       }
@@ -54,7 +58,11 @@ function boot() {
       if (data.auto_links && data.auto_links.length) {
         toast(`已自动关联 ${data.auto_links.length} 个跨脉络知识点`);
       }
+      if (data.long_text_report && data.long_text_report.chunks) {
+        toast(`长文处理完成：${data.long_text_report.chunks} 个分块`);
+      }
     } catch (error) {
+      loading.hidden = true;
       toast(error.message, true);
       setStatus("生成失败", "error");
     } finally {
@@ -89,6 +97,20 @@ function boot() {
 
   refreshHistory();
   refreshStats();
+}
+
+async function pollJob(jobId) {
+  const loading = document.getElementById("canvasLoading");
+  for (;;) {
+    const job = await api(`/jobs/${encodeURIComponent(jobId)}`);
+    if (job.status === "done") return job.result;
+    if (job.status === "error") throw new Error(job.error || "生成失败");
+    if (job.progress > 5) {
+      loading.querySelector(".loading-text").textContent =
+        `生成中 ${job.progress}% · ${job.stage}`;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 800));
+  }
 }
 
 function showReport(report) {

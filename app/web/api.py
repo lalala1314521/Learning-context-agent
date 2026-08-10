@@ -1,8 +1,11 @@
 """/api/v1 路由：脉络、节点、记忆与内容解析。"""
 
+import ipaddress
+import json
 import re
 import uuid
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, File, Form, UploadFile
 
@@ -22,6 +25,7 @@ from app.web.schemas import (
     QuizCreate,
     ReviewSubmit,
 )
+from app.services.jobs import get_job, start_job
 
 router = APIRouter()
 
@@ -37,6 +41,41 @@ class ApiError(Exception):
 
 def ok(data):
     return {"ok": True, "data": data, "error": None}
+
+
+def _validate_upload(filename: str, raw: bytes) -> str | None:
+    suffix = Path(filename or "").suffix.lower()
+    if suffix == ".pdf" and not raw.startswith(b"%PDF-"):
+        return "文件内容不是有效的 PDF"
+    if suffix == ".docx" and not raw.startswith((b"PK\x03\x04", b"PK\x05\x06")):
+        return "文件内容不是有效的 DOCX"
+    if suffix in (".txt", ".md", ".ipynb", ".py", ".html", ".json"):
+        if b"\x00" in raw:
+            return "文本文件包含二进制内容"
+        try:
+            raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return "文本文件必须使用 UTF-8 编码"
+        if suffix == ".ipynb":
+            try:
+                json.loads(raw.decode("utf-8"))
+            except Exception:
+                return "IPYNB 文件 JSON 解析失败"
+    return None
+
+
+def _is_internal_url(url: str) -> bool:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+        return True
+    if host.endswith(".local") or host.endswith(".localhost"):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_private or ip.is_loopback or ip.is_link_local
+    except ValueError:
+        return False
 
 
 def _summarize_graph(row: dict) -> dict:
@@ -82,7 +121,12 @@ def _hydrate_nodes(graph_id: str) -> int:
     return len(nodes)
 
 
-def _initial_state(content: str, output_format: str, web_search: bool) -> dict:
+def _initial_state(
+    content: str,
+    output_format: str,
+    web_search: bool,
+    selected_chapters: list[int] | None = None,
+) -> dict:
     fmt = "both" if output_format in ("auto", "both") else output_format
     return {
         "messages": [],
@@ -99,6 +143,12 @@ def _initial_state(content: str, output_format: str, web_search: bool) -> dict:
         "node_payloads": "",
         "memory_snapshot_id": "",
         "concept_report": {},
+        "long_text_report": {},
+        "long_text_tier": "",
+        "long_text_chunks": [],
+        "chapter_payloads": [],
+        "long_text_chapter_graph_ids": [],
+        "selected_chapters": selected_chapters or [],
         "action": "",
         "error": "",
     }
@@ -197,6 +247,21 @@ def _build_knowledge_context(query: str) -> tuple[str, list[dict]]:
             "summary": memory["summary"],
         })
         parts.append(f"[记忆摘要]\n{memory['summary']}")
+    for chunk in repository.search_content_chunks(query, limit=5):
+        sources.append({
+            "type": "chunk",
+            "id": chunk["id"],
+            "graph_id": chunk["graph_id"],
+            "graph_title": chunk.get("graph_title") or "",
+            "chunk_index": chunk.get("chunk_index"),
+            "text": (chunk.get("text") or "")[:200],
+        })
+        snippet = (chunk.get("text") or "")[:600]
+        if snippet.strip():
+            parts.append(
+                f"[原文分块 · {chunk.get('graph_title') or chunk['graph_id']} "
+                f"#{chunk.get('chunk_index')}]\n{snippet}"
+            )
     return "\n\n".join(parts)[:8000], sources
 
 
@@ -260,9 +325,63 @@ def generate_graph(payload: GenerateRequest):
         "memory_snapshot_id": result.get("memory_snapshot_id", ""),
         "concept_report": result.get("concept_report") or {},
         "concepts": repository.get_concepts_for_graph(graph_id) if graph_id else [],
+        "long_text_report": result.get("long_text_report") or {},
+        "long_text_chapter_graph_ids": result.get("long_text_chapter_graph_ids") or [],
+        "chunk_count": len(repository.list_content_chunks(graph_id)) if graph_id else 0,
         "nodes": nodes,
         "auto_links": auto_links,
     })
+
+
+@router.post("/graphs/generate/async")
+def generate_graph_async(payload: GenerateRequest):
+    """Start generation in a background job and return a pollable job id."""
+    def runner() -> dict:
+        result = get_graph_runner().invoke(
+            _initial_state(
+                payload.content,
+                payload.output_format,
+                payload.web_search_enabled,
+                payload.selected_chapters,
+            ),
+            {"configurable": {"thread_id": f"web-{uuid.uuid4().hex}"}},
+        )
+        if result.get("error"):
+            raise ApiError(result["error"], status=502)
+        graph_id = result.get("current_graph_id", "")
+        graph = repository.get_graph(graph_id) if graph_id else None
+        nodes = repository.get_nodes(graph_id) if graph_id else []
+        auto_links = []
+        if payload.auto_link and graph_id:
+            auto_links = _auto_link(graph_id, nodes)
+        if graph_id:
+            _generate_quiz(graph_id, nodes)
+        return {
+            "id": graph_id,
+            "title": graph.get("title") if graph else None,
+            "graph_type": graph.get("graph_type") if graph else None,
+            "mermaid": result.get("graph_mermaid", ""),
+            "markdown": result.get("graph_markdown", ""),
+            "memory_snapshot_id": result.get("memory_snapshot_id", ""),
+            "concept_report": result.get("concept_report") or {},
+            "concepts": repository.get_concepts_for_graph(graph_id) if graph_id else [],
+            "long_text_report": result.get("long_text_report") or {},
+            "long_text_chapter_graph_ids": result.get("long_text_chapter_graph_ids") or [],
+            "chunk_count": len(repository.list_content_chunks(graph_id)) if graph_id else 0,
+            "nodes": nodes,
+            "auto_links": auto_links,
+        }
+
+    job_id = start_job(runner, title=payload.content[:40])
+    return ok({"id": job_id})
+
+
+@router.get("/jobs/{job_id}")
+def get_generation_job(job_id: str):
+    job = get_job(job_id)
+    if not job:
+        raise ApiError("任务不存在", status=404)
+    return ok(job)
 
 
 @router.post("/graphs/parse")
@@ -275,10 +394,13 @@ async def parse_source(
     if file is not None:
         raw = await file.read()
         if len(raw) > MAX_UPLOAD_BYTES:
-            raise ApiError("文件超过 20MB 限制")
+            raise ApiError("文件超过 50MB 限制")
         suffix = Path(file.filename or "").suffix.lower()
         if not suffix:
             raise ApiError("无法识别文件类型")
+        invalid = _validate_upload(file.filename or "", raw)
+        if invalid:
+            raise ApiError(invalid)
         target = Path(config.DATABASE_PATH).parent / "uploads"
         target.mkdir(parents=True, exist_ok=True)
         temp_path = target / f"{uuid.uuid4().hex}{suffix}"
@@ -290,21 +412,32 @@ async def parse_source(
             temp_path.unlink(missing_ok=True)
         if parsed.get("error"):
             raise ApiError(parsed["error"])
+        from app.services.chunking import estimate_long_text
         return ok({
             "source_name": parsed.get("title") or (file.filename or ""),
-            "content": parsed["content"][:config.MAX_CONTENT_LENGTH],
+            "content": parsed["content"],
+            "preview": estimate_long_text(parsed["content"]),
         })
     if url:
+        if _is_internal_url(url):
+            raise ApiError("不允许访问内网地址")
         from app.tools.web_fetcher import fetch_url
         parsed = fetch_url(url)
         if parsed.get("error"):
             raise ApiError(parsed["error"])
+        from app.services.chunking import estimate_long_text
         return ok({
             "source_name": parsed.get("url") or url,
-            "content": parsed["content"][:config.MAX_CONTENT_LENGTH],
+            "content": parsed["content"],
+            "preview": estimate_long_text(parsed["content"]),
         })
     if text is not None:
-        return ok({"source_name": "", "content": text[:config.MAX_CONTENT_LENGTH]})
+        from app.services.chunking import estimate_long_text
+        return ok({
+            "source_name": "",
+            "content": text,
+            "preview": estimate_long_text(text),
+        })
     raise ApiError("需要提供 file、url 或 text 之一")
 
 

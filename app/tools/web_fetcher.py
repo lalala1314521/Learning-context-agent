@@ -1,8 +1,27 @@
 """网页抓取工具：提取 URL 正文内容。"""
 
+import ipaddress
+from urllib.parse import urlparse
+
+
+def _is_internal_url(url: str) -> bool:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+        return True
+    if host.endswith(".local") or host.endswith(".localhost"):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_private or ip.is_loopback or ip.is_link_local
+    except ValueError:
+        return False
+
 
 def fetch_url(url: str) -> dict:
     """抓取网页正文，返回 title, content, url。"""
+    if _is_internal_url(url):
+        return {"title": "", "content": "", "url": url, "error": "不允许访问内网地址"}
     try:
         import trafilatura
     except ImportError:

@@ -6,10 +6,11 @@ from pydantic import BaseModel, Field
 
 
 class GenerateRequest(BaseModel):
-    content: str = Field(..., min_length=1, max_length=500000)
+    content: str = Field(..., min_length=1, max_length=2000000)
     output_format: str = Field("both", pattern="^(auto|both|mermaid|markdown)$")
     web_search_enabled: bool = False
     auto_link: bool = True
+    selected_chapters: list[int] = []
 
 
 class NodeCreate(BaseModel):

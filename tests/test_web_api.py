@@ -2,6 +2,7 @@
 
 import os
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -103,6 +104,37 @@ class WebApiTestCase(unittest.TestCase):
         self.assertEqual(data["id"], "g1")
         self.assertEqual(data["mermaid"], fake_result["graph_mermaid"])
         self.assertEqual(data["memory_snapshot_id"], "m1")
+
+    def test_async_generation_job(self):
+        fake_result = {
+            "current_graph_id": "g2",
+            "graph_mermaid": "graph TD\nA[x] --> B[y]",
+            "graph_markdown": "# x\n- y",
+            "memory_snapshot_id": "m2",
+            "concept_report": {},
+            "long_text_report": {},
+            "long_text_chapter_graph_ids": [],
+            "error": "",
+        }
+        fake_graph = mock.Mock()
+        fake_graph.invoke.return_value = fake_result
+        with mock.patch("app.web.api.get_graph_runner", return_value=fake_graph):
+            started = self.client.post(
+                "/api/v1/graphs/generate/async",
+                json={"content": "异步内容", "output_format": "both"},
+            )
+        self.assertEqual(started.status_code, 200)
+        job_id = started.json()["data"]["id"]
+        data = None
+        for _ in range(20):
+            job = self.client.get(f"/api/v1/jobs/{job_id}").json()["data"]
+            if job["status"] in ("done", "error"):
+                data = job
+                break
+            time.sleep(0.05)
+        self.assertIsNotNone(data)
+        self.assertEqual(data["status"], "done")
+        self.assertEqual(data["result"]["id"], "g2")
 
     def test_node_crud_and_memories(self):
         graph_id = repository.create_graph(title="节点测试", graph_type="markdown")

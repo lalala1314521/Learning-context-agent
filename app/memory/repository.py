@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 
 from app.memory.database import get_connection
-from app.memory.embeddings import encode_embedding
+from app.memory.embeddings import cosine_similarity, decode_embedding, embed_text, encode_embedding
 
 
 def _json_list(value: str | None) -> list:
@@ -28,17 +28,19 @@ def create_graph(
     source_type: str = "",
     source_name: str = "",
     tags: list[str] | None = None,
+    parent_graph_id: str | None = None,
 ) -> str:
     graph_id = uuid.uuid4().hex[:12]
     conn = get_connection()
     try:
         conn.execute(
             """INSERT INTO knowledge_graphs (id, title, description, graph_type,
-               mermaid_code, markdown_outline, raw_content, source_type, source_name, tags)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               mermaid_code, markdown_outline, raw_content, source_type, source_name,
+               tags, parent_graph_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (graph_id, title, description, graph_type,
              mermaid_code, markdown_outline, raw_content, source_type, source_name,
-             json.dumps(tags or [], ensure_ascii=False)),
+             json.dumps(tags or [], ensure_ascii=False), parent_graph_id),
         )
         conn.commit()
     finally:
@@ -63,7 +65,8 @@ def get_graph(graph_id: str) -> dict | None:
 
 def update_graph(graph_id: str, **kwargs) -> bool:
     allowed = {"title", "description", "graph_type", "mermaid_code",
-               "markdown_outline", "raw_content", "source_type", "source_name", "tags"}
+               "markdown_outline", "raw_content", "source_type", "source_name",
+               "tags", "parent_graph_id"}
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:
         return False
@@ -990,3 +993,28 @@ def list_content_chunks(graph_id: str, limit: int = 1000) -> list[dict]:
         return [dict(r) for r in rows]
     finally:
         conn.close()
+
+
+def search_content_chunks(query: str, limit: int = 5) -> list[dict]:
+    vector = embed_text(query)
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT c.*, g.title AS graph_title
+               FROM content_chunks c
+               JOIN knowledge_graphs g ON g.id = c.graph_id
+               ORDER BY c.chunk_index LIMIT 20000"""
+        ).fetchall()
+    finally:
+        conn.close()
+    results = []
+    lowered = query.lower()
+    for row in rows:
+        data = dict(row)
+        text = data.get("text") or ""
+        similarity = cosine_similarity(vector, decode_embedding(data.get("embedding")))
+        keyword_boost = 0.35 if lowered and lowered in text.lower() else 0.0
+        data["similarity"] = similarity + keyword_boost
+        results.append(data)
+    results.sort(key=lambda item: item["similarity"], reverse=True)
+    return results[:limit]

@@ -20,5 +20,11 @@ class AgentState(TypedDict):
     node_payloads: str
     memory_snapshot_id: str
     concept_report: dict
+    long_text_report: dict
+    long_text_tier: str
+    long_text_chunks: list[dict]
+    chapter_payloads: list[dict]
+    long_text_chapter_graph_ids: list[str]
+    selected_chapters: list[int]
     action: str
     error: str

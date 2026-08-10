@@ -65,6 +65,17 @@ WebUI 默认首页已切换为全局知识星图：按领域着色、按连接�
 星图相关 API：`/api/v1/galaxy`、`/api/v1/domains/refresh`、
 `/api/v1/concepts/{start}/path/{end}`。
 
+## 长文本管道
+
+输入超过 3 万字符自动进入 Map-Reduce：结构感知分块、并行抽取、归并对齐，
+不再硬截断；超过 15 万字符的整本书会先建立章节母图，再按章生成子图。
+原文分块全部进入 `content_chunks`，知识问答升级为「向量检索原文块 + 概念图
+双路召回」。
+
+WebUI 通过 `/api/v1/graphs/generate/async` 提交生成任务并用
+`/api/v1/jobs/{id}` 轮询进度；解析阶段会先给出字数、分块数、预计耗时与
+token 消耗提示。上传已增加魔数校验，URL 抓取会拦截内网地址。
+
 ## 常用命令
 
 | 输入 | 说明 |
