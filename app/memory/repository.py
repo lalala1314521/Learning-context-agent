@@ -1,6 +1,7 @@
 """Repository 层：知识脉络与记忆快照的 CRUD 操作。"""
 
 import json
+import math
 import uuid
 from datetime import datetime
 
@@ -454,7 +455,8 @@ def get_due_review(limit: int = 20) -> list[dict]:
     try:
         rows = conn.execute(
             """SELECT rp.*, q.question, q.answer, q.question_type,
-                      g.title AS graph_title, n.label AS node_label
+                      g.title AS graph_title, n.label AS node_label,
+                      n.concept_id
                FROM review_progress rp
                JOIN quiz_questions q ON q.id = rp.quiz_id
                LEFT JOIN knowledge_graphs g ON g.id = rp.graph_id
@@ -469,44 +471,78 @@ def get_due_review(limit: int = 20) -> list[dict]:
 
 
 def submit_review(review_id: str, rating: int) -> bool:
+    from app.services.fsrs import schedule_review
     conn = get_connection()
     try:
         row = conn.execute(
-            "SELECT * FROM review_progress WHERE id = ?", (review_id,)
+            """SELECT rp.*, n.concept_id
+               FROM review_progress rp
+               LEFT JOIN graph_nodes n ON n.id = rp.node_id
+               WHERE rp.id = ?""",
+            (review_id,),
         ).fetchone()
         if not row:
             return False
-        repetitions = row["repetitions"]
-        interval = row["interval_days"]
-        ease = row["ease_factor"]
         now = datetime.now()
-        if rating <= 0:
-            repetitions = 0
-            interval = 1
-            ease = max(1.3, ease - 0.2)
-            status = "learning"
-        else:
-            repetitions += 1
-            if repetitions == 1:
-                interval = 1
-            elif repetitions == 2:
-                interval = 3
-            else:
-                interval = max(1, round(interval * ease))
-            ease = max(1.3, ease + (0.1 if rating >= 2 else 0))
-            status = "mastered" if repetitions >= 5 else "review"
-        due = now.replace(day=now.day + interval)
+        scheduled = schedule_review(
+            {
+                "repetitions": row["repetitions"],
+                "interval_days": row["interval_days"],
+                "ease_factor": row["ease_factor"],
+                "difficulty": row["difficulty"],
+                "stability": row["stability"],
+                "last_reviewed_at": row["last_reviewed_at"],
+                "lapses": row["lapses"] if "lapses" in row.keys() else 0,
+            },
+            rating,
+            now=now,
+        )
         conn.execute(
             """UPDATE review_progress
                SET status = ?, repetitions = ?, interval_days = ?,
-                   ease_factor = ?, due_at = ?, last_reviewed_at = ?,
+                   ease_factor = ?, difficulty = ?, stability = ?,
+                   retrievability = ?, due_at = ?, last_reviewed_at = ?,
                    updated_at = ?
                WHERE id = ?""",
-            (status, repetitions, interval, ease, due.isoformat(),
-             now.isoformat(), now.isoformat(), review_id),
+            (
+                scheduled["status"], scheduled["repetitions"],
+                scheduled["interval_days"], scheduled["ease_factor"],
+                scheduled["difficulty"], scheduled["stability"],
+                scheduled["retrievability"],
+                scheduled["due_at"].isoformat(),
+                scheduled["last_reviewed_at"].isoformat(),
+                now.isoformat(), review_id,
+            ),
         )
+        if row["concept_id"]:
+            conn.execute(
+                """INSERT INTO review_history
+                   (id, concept_id, review_progress_id, rating,
+                    retrievability, stability, difficulty, reviewed_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    uuid.uuid4().hex[:12], row["concept_id"], review_id,
+                    rating, scheduled["retrievability"],
+                    scheduled["stability"], scheduled["difficulty"],
+                    now.isoformat(),
+                ),
+            )
         conn.commit()
         return True
+    finally:
+        conn.close()
+
+
+def list_review_history(concept_id: str, limit: int = 100) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT * FROM review_history
+               WHERE concept_id = ?
+               ORDER BY reviewed_at ASC LIMIT ?""",
+            (concept_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()
 
@@ -804,32 +840,45 @@ def get_concept_mastery() -> dict[str, dict]:
     conn = get_connection()
     try:
         rows = conn.execute(
-            """SELECT n.concept_id,
-                      COUNT(rp.id) AS review_count,
-                      MAX(rp.repetitions) AS repetitions,
-                      MAX(rp.updated_at) AS last_reviewed_at
-               FROM graph_nodes n
-               LEFT JOIN review_progress rp ON rp.node_id = n.id
+            """SELECT n.concept_id, rp.repetitions, rp.stability,
+                      rp.retrievability, rp.last_reviewed_at, rp.updated_at
+               FROM review_progress rp
+               JOIN graph_nodes n ON n.id = rp.node_id
                WHERE n.concept_id IS NOT NULL
-               GROUP BY n.concept_id""",
+               ORDER BY rp.updated_at DESC""",
         ).fetchall()
         result: dict[str, dict] = {}
+        latest: dict[str, dict] = {}
         for row in rows:
-            repetitions = int(row["repetitions"] or 0)
-            review_count = int(row["review_count"] or 0)
-            if review_count == 0:
-                level = "unseen"
-            elif repetitions < 2:
-                level = "weak"
-            elif repetitions < 5:
-                level = "medium"
-            else:
+            cid = row["concept_id"]
+            if cid in latest:
+                continue
+            latest[cid] = row
+        now = datetime.now()
+        for cid, row in latest.items():
+            stability = float(row["stability"] or 1.0)
+            last = row["last_reviewed_at"]
+            retrievability = float(row["retrievability"] or 0.0)
+            if last:
+                try:
+                    last_dt = datetime.fromisoformat(str(last))
+                    days = max(0.0, (now - last_dt).total_seconds() / 86400.0)
+                    retrievability = math.exp(-days / max(stability, 0.1))
+                except Exception:
+                    pass
+            if retrievability >= 0.9:
                 level = "strong"
-            result[row["concept_id"]] = {
-                "review_count": review_count,
-                "repetitions": repetitions,
+            elif retrievability >= 0.7:
+                level = "medium"
+            elif retrievability >= 0.5:
+                level = "weak"
+            else:
+                level = "forgotten"
+            result[cid] = {
+                "review_count": int(row["repetitions"] or 0),
+                "repetitions": int(row["repetitions"] or 0),
                 "mastery": level,
-                "retrievability": None,
+                "retrievability": round(retrievability, 4),
                 "last_reviewed_at": row["last_reviewed_at"],
             }
         return result

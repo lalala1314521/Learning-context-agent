@@ -55,7 +55,20 @@ class QuizCreate(BaseModel):
 
 
 class ReviewSubmit(BaseModel):
-    rating: int = Field(..., ge=0, le=2)
+    rating: int = Field(..., ge=0, le=3)
+
+
+class ReviewSessionCreate(BaseModel):
+    mode: Optional[str] = Field(
+        None,
+        pattern="^(flashcard|graph_recall|matching|feynman|socratic|cross_doc)$",
+    )
+    count: int = Field(8, ge=1, le=30)
+    graph_id: str = ""
+
+
+class ReviewSessionAnswer(BaseModel):
+    response: dict = {}
 
 
 class AskRequest(BaseModel):

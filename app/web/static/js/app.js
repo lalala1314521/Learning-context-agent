@@ -21,6 +21,11 @@ function boot() {
   initAskPanel();
   initSplitLayout();
 
+  document.addEventListener("review-updated", () => {
+    refreshGalaxy();
+    refreshStats();
+  });
+
   const root = document.documentElement;
   const savedTheme = localStorage.getItem("lca-theme") || "light";
   root.dataset.theme = savedTheme;

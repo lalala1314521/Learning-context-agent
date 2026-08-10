@@ -76,6 +76,16 @@ WebUI 通过 `/api/v1/graphs/generate/async` 提交生成任务并用
 `/api/v1/jobs/{id}` 轮询进度；解析阶段会先给出字数、分块数、预计耗时与
 token 消耗提示。上传已增加魔数校验，URL 抓取会拦截内网地址。
 
+## 多模态复习
+
+复习调度已从 SM-2 简版升级为 FSRS 记忆三变量模型，掌握度统一使用当前
+`retrievability`；每次复习写入 `review_history`，星图中的概念详情可查看
+记忆曲线。复习中心支持六种模式：闪卡问答、图回忆、连线题、费曼讲述、
+苏格拉底追问、跨文档综合，默认开放闪卡与图回忆，其余模式随复习次数解锁。
+
+相关 API：`/api/v1/review/brief`、`/api/v1/review/session`、
+`/api/v1/concepts/{id}/curve`。
+
 ## 常用命令
 
 | 输入 | 说明 |

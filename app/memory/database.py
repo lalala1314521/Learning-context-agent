@@ -39,6 +39,9 @@ def init_db() -> None:
         _ensure_column(conn, "graph_nodes", "concept_id", "TEXT")
         _ensure_column(conn, "knowledge_graphs", "parent_graph_id", "TEXT")
         _ensure_column(conn, "quiz_questions", "concept_id", "TEXT")
+        _ensure_column(conn, "review_progress", "difficulty", "REAL DEFAULT 5.0")
+        _ensure_column(conn, "review_progress", "stability", "REAL DEFAULT 1.0")
+        _ensure_column(conn, "review_progress", "retrievability", "REAL DEFAULT 1.0")
         conn.commit()
     finally:
         conn.close()

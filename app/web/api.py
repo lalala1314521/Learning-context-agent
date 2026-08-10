@@ -23,6 +23,8 @@ from app.web.schemas import (
     NodeCreate,
     NodeUpdate,
     QuizCreate,
+    ReviewSessionAnswer,
+    ReviewSessionCreate,
     ReviewSubmit,
 )
 from app.services.jobs import get_job, start_job
@@ -686,11 +688,65 @@ def get_review_queue():
     })
 
 
+@router.get("/review/brief")
+def get_daily_brief():
+    from app.services.review import daily_brief
+    return ok(daily_brief())
+
+
+@router.post("/review/session")
+def create_session(payload: ReviewSessionCreate):
+    from app.services.review import create_review_session
+    session = create_review_session(
+        mode=payload.mode,
+        count=payload.count,
+        graph_id=payload.graph_id or None,
+    )
+    return ok(session)
+
+
+@router.get("/review/session/{session_id}")
+def get_review_session(session_id: str):
+    from app.services.review import get_session
+    session = get_session(session_id)
+    if not session:
+        raise ApiError("复习会话不存在", status=404)
+    return ok(session)
+
+
+@router.post("/review/session/{session_id}/answer")
+def answer_session_item(
+    session_id: str,
+    payload: ReviewSessionAnswer,
+):
+    from app.services.review import submit_session_item
+    try:
+        result = submit_session_item(
+            session_id,
+            payload.response.get("item_id", ""),
+            payload.response,
+        )
+    except ValueError as exc:
+        raise ApiError(str(exc), status=404)
+    return ok(result)
+
+
 @router.post("/review/{review_id}")
 def submit_review(review_id: str, payload: ReviewSubmit):
     if not repository.submit_review(review_id, payload.rating):
         raise ApiError("复习记录不存在", status=404)
     return ok({"id": review_id, "rating": payload.rating})
+
+
+@router.get("/concepts/{concept_id}/curve")
+def concept_curve(concept_id: str):
+    concept = repository.get_concept(concept_id)
+    if not concept:
+        raise ApiError("概念不存在", status=404)
+    return ok({
+        "concept": concept,
+        "history": repository.list_review_history(concept_id),
+    })
 
 
 @router.post("/ask")

@@ -293,14 +293,23 @@ async function explainPath() {
 
 async function showConceptDetail(conceptId) {
   try {
-    const data = await api(`/concepts/${encodeURIComponent(conceptId)}`);
+    const [data, curve] = await Promise.all([
+      api(`/concepts/${encodeURIComponent(conceptId)}`),
+      api(`/concepts/${encodeURIComponent(conceptId)}/curve`),
+    ]);
     const concept = data.concept || {};
     const result = document.getElementById("galaxyPathResult");
     result.hidden = false;
+    const history = curve.history || [];
     result.innerHTML = `
       <div class="path-heading">概念详情</div>
       <div class="concept-detail-title">${esc(concept.canonical_label || "")}</div>
       <div class="concept-detail-summary">${esc(concept.summary || "暂无摘要")}</div>
+      <div class="concept-curve">
+        ${history.map((point) =>
+          `<span title="R=${point.retrievability ?? "?"}" style="--r:${point.retrievability ?? 0}"></span>`).join("")
+          || '<span class="curve-empty">暂无记忆曲线数据</span>'}
+      </div>
       <div class="concept-detail-mentions">
         ${(data.mentions || []).map((m) =>
           `<span>${esc(m.graph_title || "脉络")} · ${esc(m.label)}</span>`).join("") || "暂无提及"}

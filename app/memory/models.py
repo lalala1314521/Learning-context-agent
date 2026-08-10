@@ -148,10 +148,26 @@ DDL_STATEMENTS = [
         repetitions       INTEGER DEFAULT 0,
         interval_days     INTEGER DEFAULT 1,
         ease_factor       REAL DEFAULT 2.5,
+        difficulty        REAL DEFAULT 5.0,
+        stability         REAL DEFAULT 1.0,
+        retrievability    REAL DEFAULT 1.0,
         due_at            TIMESTAMP,
         last_reviewed_at  TIMESTAMP,
         updated_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_review_due ON review_progress(due_at)",
+    """
+    CREATE TABLE IF NOT EXISTS review_history (
+        id                 TEXT PRIMARY KEY,
+        concept_id         TEXT,
+        review_progress_id TEXT,
+        rating             INTEGER,
+        retrievability     REAL,
+        stability          REAL,
+        difficulty         REAL,
+        reviewed_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_review_history_concept ON review_history(concept_id)",
 ]

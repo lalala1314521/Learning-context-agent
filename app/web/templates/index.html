@@ -164,11 +164,24 @@
     </div>
     <div class="review-panel">
       <div class="panel-head">
-        <h2>今日复习</h2>
+        <h2>复习中心</h2>
         <div class="head-actions">
           <span class="panel-tag" id="reviewDueCount">0 待复习</span>
           <span class="panel-tag" id="reviewDoneCount">0 已复习</span>
         </div>
+      </div>
+      <div class="review-controls">
+        <select id="reviewModeSelect">
+          <option value="">惊喜模式（自动轮换）</option>
+          <option value="flashcard">闪卡问答</option>
+          <option value="graph_recall">图回忆</option>
+          <option value="matching">连线题</option>
+          <option value="feynman">费曼讲述</option>
+          <option value="socratic">苏格拉底追问</option>
+          <option value="cross_doc">跨文档综合</option>
+        </select>
+        <button type="button" id="startReviewBtn" class="primary-btn small">开始复习</button>
+        <button type="button" id="briefBtn" class="ghost-btn small">今日简报</button>
       </div>
       <div id="reviewList" class="review-list"></div>
     </div>
