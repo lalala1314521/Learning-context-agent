@@ -56,6 +56,12 @@ uv run python -m app.web.server 8765
 8 万字符；旧图会自动从 Mermaid / 大纲补全节点。当前 WebUI 仅监听 `127.0.0.1`，
 暂不启用登录，认证扩展层已预留。
 
+## UI 截图
+
+WebUI 完整截图统一放在 [docs/ui-screenshots.md](docs/ui-screenshots.md)，包含首页、
+知识星图、脉络图、复习、长期记忆与知识问答等界面。点击链接即可在 GitHub 上打开
+图片文档。
+
 ## 项目框架
 
 ```mermaid
@@ -373,6 +379,9 @@ WebUI 默认首页已切换为全局知识星图：按领域着色、按连接�
 │   ├── tools/                # 文档、网页、搜索、图谱、导入等工具
 │   ├── memory/               # SQLite 连接、DDL、仓储与 checkpoint
 │   └── prompts/              # System Prompt 与生成 Prompt
+├── docs/                     # 项目文档与 UI 截图
+│   ├── ui-screenshots.md     # WebUI 截图索引
+│   └── ui/                   # 截图图片
 ├── data/                     # 运行时 SQLite 数据库与上传临时文件
 ├── scripts/                  # 迁移、检查等脚本
 ├── tests/                    # unittest 冒烟测试
