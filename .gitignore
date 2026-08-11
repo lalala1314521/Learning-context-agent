@@ -28,3 +28,14 @@ dist/
 *.log
 webui.err.log
 webui.out.log
+
+# Local-only archived docs (kept on disk, not tracked by Git)
+AGENT_DESIGN.md
+FEATURE_DESIGN_GRAPH_REVIEW.md
+IMPLEMENTATION_PLAN.md
+PROJECT_REVIEW_REPORT.md
+REVIEW_IMPROVEMENT_PLAN.md
+WEBUI_PLAN.md
+WEBUI_V2_UPDATE.md
+design/webui-v3-design.html
+sample.ipynb
