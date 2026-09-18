@@ -11,7 +11,7 @@ from app.config import config
 from app.graph.state import build_initial_state
 from app.memory import repository
 from app.services.graph_management import auto_link, generate_quiz, hydrate_nodes
-from app.services.jobs import get_job, start_job
+from app.services.jobs import cancel_job, get_job, retry_job, start_job, ensure_job_active
 from app.tools.safety import is_internal_url
 from app.web.dependencies import ensure_database, get_graph as get_graph_runner
 from app.web.routers.common import ApiError, ok
@@ -109,6 +109,8 @@ def generate_graph(payload: GenerateRequest):
                 payload.content,
                 output_format=payload.output_format,
                 web_search_enabled=payload.web_search_enabled,
+                learning_goal=payload.learning_goal,
+                generation_depth=payload.generation_depth,
             ),
             {"configurable": {"thread_id": thread_id}},
         )
@@ -162,6 +164,8 @@ def generate_graph_async(payload: GenerateRequest):
             output_format=payload.output_format,
             web_search_enabled=payload.web_search_enabled,
             selected_chapters=payload.selected_chapters,
+            learning_goal=payload.learning_goal,
+            generation_depth=payload.generation_depth,
         )
         config_ctx = {"configurable": {"thread_id": thread_id}}
 
@@ -171,6 +175,7 @@ def generate_graph_async(payload: GenerateRequest):
         final: dict = {}
         try:
             for chunk in graph.stream(initial, config_ctx):
+                ensure_job_active(job)
                 for node_name, update in chunk.items():
                     final.update(update)
                     for event in build_trace_events(node_name, update):
@@ -215,7 +220,7 @@ def generate_graph_async(payload: GenerateRequest):
             "total_tokens": total_tokens,
         }
 
-    job_id = start_job(runner, title=payload.content[:40])
+    job_id = start_job(runner, title=payload.content[:40], timeout_seconds=300.0)
     return ok({"id": job_id})
 
 
@@ -225,6 +230,22 @@ def get_generation_job(job_id: str):
     if not job:
         raise ApiError("任务不存在", status=404)
     return ok(job)
+
+
+@router.post("/jobs/{job_id}/cancel")
+def cancel_generation_job(job_id: str):
+    job = cancel_job(job_id)
+    if not job:
+        raise ApiError("任务不存在", status=404)
+    return ok(job)
+
+
+@router.post("/jobs/{job_id}/retry")
+def retry_generation_job(job_id: str):
+    new_id = retry_job(job_id)
+    if not new_id:
+        raise ApiError("只有失败、取消或超时的任务可以重试", status=409)
+    return ok({"id": new_id})
 
 
 @router.post("/graphs/parse")

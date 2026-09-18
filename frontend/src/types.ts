@@ -28,6 +28,8 @@ export type GraphDetail = {
   graph: Graph;
   nodes: GraphNode[];
   concept_links?: ConceptLink[];
+  links?: Array<{ id: string; from_node_id: string; to_node_id: string; relation_type?: string; note?: string }>;
+  structure?: { version: string; edges?: Array<{ id: string; source: string; target: string; relation_type?: string }> };
 };
 
 export type Concept = {

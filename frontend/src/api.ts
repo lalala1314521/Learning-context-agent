@@ -24,22 +24,31 @@ export const api = {
     request<AskResult>("/ask", { method: "POST", body: JSON.stringify({ question, use_database: useDatabase }) }),
   askAsync: (question: string, useDatabase = true) =>
     request<{ id: string }>("/ask/async", { method: "POST", body: JSON.stringify({ question, use_database: useDatabase }) }),
-  parse: (text: string) => request<{ content: string; preview: Record<string, unknown> }>("/graphs/parse", {
+  parse: (text: string) => request<{ content: string; preview: Record<string, unknown>; source_name?: string }>("/graphs/parse", {
     method: "POST",
     headers: {},
     body: new URLSearchParams({ text }),
   }),
-  generate: (content: string, webSearchEnabled = false) =>
+  parseSource: (source: { file?: File; url?: string; text?: string }) => {
+    const form = new FormData();
+    if (source.file) form.append("file", source.file);
+    if (source.url) form.append("url", source.url);
+    if (source.text) form.append("text", source.text);
+    return request<{ content: string; preview: Record<string, unknown>; source_name?: string }>("/graphs/parse", {
+      method: "POST", headers: {}, body: form,
+    });
+  },
+  generate: (content: string, options: { webSearchEnabled?: boolean; learningGoal?: string; generationDepth?: string } = {}) =>
     request<{ id: string; title?: string; nodes: unknown[] }>("/graphs/generate", {
-      method: "POST",
-      body: JSON.stringify({ content, output_format: "both", web_search_enabled: webSearchEnabled, auto_link: true }),
+      method: "POST", body: JSON.stringify({ content, output_format: "both", web_search_enabled: options.webSearchEnabled ?? false, auto_link: true, learning_goal: options.learningGoal || "理解主线", generation_depth: options.generationDepth || "standard" }),
     }),
-  generateAsync: (content: string, webSearchEnabled = false) =>
+  generateAsync: (content: string, options: { webSearchEnabled?: boolean; learningGoal?: string; generationDepth?: string } = {}) =>
     request<{ id: string }>("/graphs/generate/async", {
-      method: "POST",
-      body: JSON.stringify({ content, output_format: "both", web_search_enabled: webSearchEnabled, auto_link: true }),
+      method: "POST", body: JSON.stringify({ content, output_format: "both", web_search_enabled: options.webSearchEnabled ?? false, auto_link: true, learning_goal: options.learningGoal || "理解主线", generation_depth: options.generationDepth || "standard" }),
     }),
-  job: (id: string) => request<{ status: string; stage?: string; progress?: number; trace?: Array<{ text?: string; type?: string }>; result?: { id?: string } }>(`/jobs/${encodeURIComponent(id)}`),
+  job: (id: string) => request<{ id: string; status: string; stage?: string; progress?: number; error?: string; trace?: Array<{ text?: string; type?: string }>; result?: { id?: string } }>(`/jobs/${encodeURIComponent(id)}`),
+  cancelJob: (id: string) => request<{ id: string; status: string; stage?: string }>(`/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
+  retryJob: (id: string) => request<{ id: string }>(`/jobs/${encodeURIComponent(id)}/retry`, { method: "POST" }),
   reviewSession: (mode = "feynman") => request<{ id: string; mode: string; items: Array<Record<string, unknown>> }>("/review/session", {
     method: "POST", body: JSON.stringify({ mode, count: 6 }),
   }),

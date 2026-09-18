@@ -25,6 +25,8 @@ class AgentState(TypedDict):
     output_format: str
     web_search_enabled: bool
     supplementary_info: str
+    learning_goal: str
+    generation_depth: str
 
     # ── 脉络图结果 ────────────────────────────────────────────────
     current_graph_id: str
@@ -52,6 +54,8 @@ def build_initial_state(
     output_format: str = "both",
     web_search_enabled: bool = False,
     selected_chapters: list[int] | None = None,
+    learning_goal: str = "理解主线",
+    generation_depth: str = "standard",
     input_type: str = "text",
     **overrides,
 ) -> dict:
@@ -72,6 +76,8 @@ def build_initial_state(
         "output_format": fmt,
         "web_search_enabled": web_search_enabled,
         "supplementary_info": "",
+        "learning_goal": learning_goal or "理解主线",
+        "generation_depth": generation_depth or "standard",
         "current_graph_id": "",
         "graph_mermaid": "",
         "graph_markdown": "",

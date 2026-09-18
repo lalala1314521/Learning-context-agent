@@ -4,7 +4,7 @@ import time
 
 from fastapi import APIRouter
 
-from app.services.jobs import start_job
+from app.services.jobs import ensure_job_active, start_job
 from app.services.knowledge import answer_question
 from app.web.dependencies import ensure_database
 from app.web.routers.common import ApiError, ok
@@ -41,6 +41,7 @@ def ask_knowledge_async(payload: AskRequest):
         trace: list[dict] = []
 
         def on_event(event: dict) -> None:
+            ensure_job_active(job)
             event["ms"] = int((time.time() - started) * 1000)
             trace.append(event)
             if job is not None:
@@ -55,9 +56,10 @@ def ask_knowledge_async(payload: AskRequest):
             use_database=payload.use_database,
             on_event=on_event,
         )
+        ensure_job_active(job)
         result["trace"] = trace
         result["total_tokens"] = sum(int(e.get("tokens") or 0) for e in trace)
         return result
 
-    job_id = start_job(runner, title=payload.question[:40])
+    job_id = start_job(runner, title=payload.question[:40], timeout_seconds=120.0)
     return ok({"id": job_id})

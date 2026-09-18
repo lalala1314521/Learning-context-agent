@@ -23,6 +23,9 @@
 - 理解练习已接入现有复习会话 API，默认使用 Feynman 理解题，可提交回答并获得基于覆盖度的关系/条件反馈。
 - 材料页已接入异步生成任务和 trace：真实显示“解析/生成/对齐/保存”阶段，并以任务结果打开对应知识脉络。
 - 问答页已接入异步检索 trace：检索命中、联网补充和回答组织过程会显示在当前问题上下文中，最终保留来源卡。
+- 材料页已接入文本、文件、公开 URL 三种输入预览，并把学习目标、展开深度和联网补充选项传入生成接口。
+- 异步生成与问答任务现在提供取消、超时和失败重试生命周期；前端会保留当前材料/问题和最近 trace，不把失败伪装成成功动画。
+- 问答来源卡支持回到对应知识脉络；问答页可以明确选择是否以个人知识库作为主要依据。
 
 ### 阶段 2 的后端前置契约
 
@@ -41,10 +44,11 @@
 - `python -m unittest tests.test_web_api.WebApiTestCase.test_index_and_vendor_assets tests.test_web_api.WebApiTestCase.test_graphs_list_and_detail tests.test_web_api.WebApiTestCase.test_parse_text_and_upload tests.test_web_api.WebApiTestCase.test_experience_overview_contract -v`：通过。
 - 真实浏览器检查：工作台、材料页、单篇知识脉络、星图和理解练习均能加载；理解练习能够创建会话并显示题目。
 - 深链刷新：`/galaxy`、`/knowledge` 等 React Router 路径由 FastAPI fallback 正常返回新入口；`/api` 与 `/static` 不被 fallback 吞掉。
+- 任务生命周期：`tests.test_jobs` 覆盖取消、重试和 attempt 递增；异步生成 API 回归测试继续通过。
 
 ## 后续阶段
 
-1. 为异步生成补充取消、超时、重试和录屏验收，完成“材料→成图”的真实四条分镜录制。
+1. 为异步生成补充真实录屏验收，完成“材料→成图”的四条分镜记录；取消、超时和重试 API/页面控制已落地。
 2. 将统一结构契约贯穿长文 Map-Reduce、章节子图、证据块、概念对齐和知识路径；增加固定 12 份材料评测集。
 3. 补齐问答多轮会话、来源跳转、关系路径和星图语义缩放/局部展开。
 4. 将报告、设置、文件上传、URL、Vault 和异常态迁移到新壳，清理旧页面默认依赖。

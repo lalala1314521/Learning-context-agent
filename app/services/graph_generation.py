@@ -203,6 +203,8 @@ def generate_graph_fields(
     output_format: str = "both",
     supplementary_info: str = "",
     selected_chapters: list[int] | None = None,
+    learning_goal: str = "理解主线",
+    generation_depth: str = "standard",
     llm=None,
 ) -> dict:
     """生成脉络图内容（不落库），返回 graph_mermaid / graph_markdown / node_payloads
@@ -210,8 +212,15 @@ def generate_graph_fields(
     content = (content or "").strip()
     if not content:
         return {"error": "没有可解析的内容"}
+    context_parts = []
+    if learning_goal:
+        context_parts.append(f"## 学习目标\n{learning_goal}")
+    if generation_depth:
+        context_parts.append(f"## 展开深度\n{generation_depth}")
     if supplementary_info:
-        content = f"{content}\n\n## 联网搜索补充信息\n{supplementary_info}"
+        context_parts.append(f"## 联网搜索补充信息\n{supplementary_info}")
+    if context_parts:
+        content = f"{content}\n\n" + "\n\n".join(context_parts)
 
     logger.info("generate_graph_fields ~%dtok", estimate_tokens(content))
     current = llm if llm is not None else (get_llm() if config.DEEPSEEK_API_KEY else None)

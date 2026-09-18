@@ -11,6 +11,8 @@ class GenerateRequest(BaseModel):
     web_search_enabled: bool = False
     auto_link: bool = True
     selected_chapters: list[int] = []
+    learning_goal: str = Field("理解主线", max_length=120)
+    generation_depth: str = Field("standard", pattern="^(overview|standard|deep)$")
     # 可选会话 ID：用于多轮对话状态隔离（缺省时每次请求为独立会话）
     thread_id: Optional[str] = None
 

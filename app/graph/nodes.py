@@ -193,6 +193,8 @@ def generate_graph_node(state: AgentState) -> dict:
         output_format=state.get("output_format", "both"),
         supplementary_info=state.get("supplementary_info", ""),
         selected_chapters=state.get("selected_chapters") or None,
+        learning_goal=state.get("learning_goal", "理解主线"),
+        generation_depth=state.get("generation_depth", "standard"),
     )
     if fields.get("error"):
         return {"graph_mermaid": "", "graph_markdown": "", "error": fields["error"]}

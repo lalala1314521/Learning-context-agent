@@ -1,4 +1,4 @@
-import{w as _,g,c,u as U,B as y,d as l,E as I,e as m}from"./GalaxyScene-DboEQeSY.js";const h={name:"local-uniform-bit",vertex:{header:`
+import{w as _,g,c,u as U,B as y,d as l,E as I,e as m}from"./GalaxyScene-DNwSKhIN.js";const h={name:"local-uniform-bit",vertex:{header:`
 
             struct LocalUniforms {
                 uTransformMatrix:mat3x3<f32>,
