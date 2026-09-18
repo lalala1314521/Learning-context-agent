@@ -21,3 +21,8 @@
 .trace-stream { display: grid; gap: 7px; margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); }
 .trace-event { display: flex; gap: 8px; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .trace-event i { color: var(--cyan); font-style: normal; }
+.galaxy-tools { display: flex; align-items: center; gap: 6px; }
+.galaxy-tools .icon-button { width: 29px; height: 29px; padding: 0; }
+.galaxy-search { display: flex; align-items: center; gap: 10px; margin: 20px 0 0; padding: 10px 13px; border: 1px solid var(--line); border-radius: 12px; background: rgba(4, 8, 22, .17); color: var(--muted); }
+.galaxy-search input { min-width: 0; flex: 1; border: 0; outline: 0; color: var(--ink); background: transparent; font-size: 12px; }
+.galaxy-search small { font-size: 10px; white-space: nowrap; }
