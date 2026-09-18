@@ -15,6 +15,7 @@ from app.services.chunking import (
     estimate_long_text,
 )
 from app.services.longtext import (
+    _fallback_extract,
     create_book_subgraphs,
     map_reduce,
     prepare_book_payload,
@@ -48,6 +49,16 @@ class ChunkingTestCase(unittest.TestCase):
 
 
 class LongTextPipelineTestCase(unittest.TestCase):
+    def test_fallback_only_keeps_explicit_relations(self):
+        concepts, relations = _fallback_extract(
+            "## 主题\n概念A 是核心方法。\n概念B 依赖概念A。"
+        )
+        labels = {item["label"] for item in concepts}
+        self.assertIn("概念A", labels)
+        self.assertIn("概念B", labels)
+        self.assertEqual(relations[0]["relation_type"], "depends_on")
+        self.assertIn("依赖", relations[0]["evidence"])
+
     def test_map_reduce_fallback(self):
         content = "\n\n".join(
             f"## 主题 {i}\n概念A{i} 是核心方法。\n概念B{i} 依赖概念A{i}。"

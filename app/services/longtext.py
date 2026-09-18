@@ -29,12 +29,19 @@ _REDUCE_PROMPT = """你是脉络图整合器。根据归并后的概念清单和
 关系清单：
 {relations}"""
 
+_RELATION_ALIASES = {
+    "depends": "depends_on",
+    "dependency": "depends_on",
+    "extends": "supports",
+    "cause": "causes",
+    "contrast": "contrasts",
+}
+
 
 def _fallback_extract(content: str) -> tuple[list[dict], list[dict]]:
     concepts: list[dict] = []
     relations: list[dict] = []
     seen: set[str] = set()
-    previous = None
     for raw in content.splitlines():
         line = raw.strip()
         if not line:
@@ -49,14 +56,24 @@ def _fallback_extract(content: str) -> tuple[list[dict], list[dict]]:
                 "note": "",
                 "node_type": "concept",
             })
-            if previous:
-                relations.append({
-                    "from": previous,
-                    "to": label,
-                    "relation_type": "related",
-                    "evidence": "相邻章节或条目",
-                })
-            previous = label
+    # 只有原文明确出现关系触发词时才建立边；相邻标题不构成知识依据。
+    trigger = re.compile(r"([^。；，,\s]{2,30})\s*(依赖|导致|引起|包含|包括|属于|基于|区别于|对比)\s*([^。；，,\s]{2,30})")
+    for match in trigger.finditer(content):
+        for endpoint in (match.group(1).strip(), match.group(3).strip()):
+            if endpoint and endpoint not in seen and len(endpoint) <= 60:
+                seen.add(endpoint)
+                concepts.append({"label": endpoint, "note": "", "node_type": "concept"})
+        relation_type = {
+            "依赖": "depends_on", "导致": "causes", "引起": "causes",
+            "包含": "supports", "包括": "supports", "属于": "related",
+            "基于": "depends_on", "区别于": "contrasts", "对比": "contrasts",
+        }[match.group(2)]
+        relations.append({
+            "from": match.group(1).strip(),
+            "to": match.group(3).strip(),
+            "relation_type": relation_type,
+            "evidence": match.group(0).strip(),
+        })
     return concepts[:80], relations[:80]
 
 
@@ -93,10 +110,11 @@ def _extract_chunk(content: str, llm=None) -> tuple[list[dict], list[dict]]:
         if key in seen_relations:
             continue
         seen_relations.add(key)
+        raw_type = str(item.get("relation_type") or "related").strip().lower()
         relations.append({
             "from": str(item.get("from") or ""),
             "to": str(item.get("to") or ""),
-            "relation_type": str(item.get("relation_type") or "related"),
+            "relation_type": _RELATION_ALIASES.get(raw_type, raw_type),
             "evidence": str(item.get("evidence") or ""),
         })
     return concepts or _fallback_extract(content)[0], relations
@@ -137,7 +155,7 @@ def _merge_extractions(results: list[tuple[list[dict], list[dict]]]) -> tuple[li
             relations.setdefault(key, {
                 "from": key[0],
                 "to": key[1],
-                "relation_type": key[2],
+                "relation_type": _RELATION_ALIASES.get(key[2], key[2]),
                 "evidence": relation.get("evidence", ""),
             })
     return list(concepts.values()), list(relations.values())
@@ -190,13 +208,29 @@ def map_reduce(content: str, llm=None) -> dict:
     if not mermaid:
         mermaid, markdown = _fallback_mermaid(concepts, relations)
     node_payloads = []
+    node_ids = {
+        re.sub(r"\s+", "", concept["label"].lower()): f"N{index}"
+        for index, concept in enumerate(concepts[:120])
+    }
+    relation_by_source: dict[str, list[dict]] = {}
+    for relation in relations:
+        source_id = node_ids.get(re.sub(r"\s+", "", relation.get("from", "").lower()))
+        target_id = node_ids.get(re.sub(r"\s+", "", relation.get("to", "").lower()))
+        if not source_id or not target_id or source_id == target_id:
+            continue
+        relation_by_source.setdefault(source_id, []).append({"id": target_id, **relation})
     for index, concept in enumerate(concepts[:120]):
+        node_id = f"N{index}"
+        outgoing = relation_by_source.get(node_id, [])
         node_payloads.append({
+            "id": node_id,
             "label": concept["label"],
-            "note": concept.get("note", ""),
+            "note": concept.get("note", "") or (outgoing[0].get("evidence", "") if outgoing else ""),
             "node_type": concept.get("node_type", "concept"),
             "parent_id": "",
-            "related_nodes": [],
+            "related_nodes": [item["id"] for item in outgoing],
+            "evidence": "；".join(item.get("evidence", "") for item in outgoing if item.get("evidence")),
+            "relation_type": outgoing[0].get("relation_type", "related") if outgoing else "related",
             "order_index": index,
         })
     embeddings = embed_texts([c["text"] for c in chunks])
