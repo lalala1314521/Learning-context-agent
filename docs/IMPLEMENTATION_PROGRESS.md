@@ -1,0 +1,51 @@
+# 知识体验重构实施记录
+
+> 对应方案：[知识体验整体改进方案](KNOWLEDGE_EXPERIENCE_REDESIGN.md) 与 [前端视觉、全局动效与知识星图专项设计](FRONTEND_VISUAL_MOTION_SPEC.md)。
+> 当前分支：`codex/knowledge-experience-redesign`
+
+## 本轮已完成
+
+### 阶段 0：分支与现状基线
+
+- 建立独立重构分支，保留原 `main` 的可运行基线。
+- 保留旧 API、旧静态资源和数据库内容作为迁移期兼容层。
+- 用真实 FastAPI 页面和浏览器检查作为 UI 基线，而不是只看静态源码。
+
+### 阶段 1：关键效果原型与新应用壳
+
+- 建立 `frontend/` React + TypeScript + Vite 工程，路由分包并生成 FastAPI 可直接提供的静态构建。
+- 建立六个业务场景：工作台、材料与生成、知识脉络、知识星图、知识问答、理解练习。
+- 建立统一 `MotionOrchestrator`：场景版本、对象 ID、事件、完整/轻量/静态三档动效和 `prefers-reduced-motion` 入口。
+- 工作台使用跨页面共享的线条母题；材料页使用生成过程分镜；单篇图使用 SVG 路径描线和节点聚焦；页面切换使用共享的场景进入/离开过渡。
+- 星图使用 PixiJS 自定义场景：边、领域光场、概念星体、重点标签、领域压缩和概念详情面板。概念从真实 `/galaxy` 数据读取，不再使用随机节点。
+- 修复星图原型中的密集环形布局和全量标签：总览只保留主要概念标签，其余概念保留可拾取星体，领域可压缩为前 12 个主要领域加“其他领域”。
+- 理解练习已接入现有复习会话 API，默认使用 Feynman 理解题，可提交回答并获得基于覆盖度的关系/条件反馈。
+
+### 阶段 2 的后端前置契约
+
+- 增加 `knowledge-structure/v1` 规范化层：清洗空节点、非法父节点、自环、重复关联和关系类型；保留证据到兼容的节点说明中。
+- 图谱详情 API 返回稳定的 `structure`、真实 `links` 和 `edge_id`，将层级边与跨图边分开提供给视图适配器。
+- 增加 `/api/v1/experience/overview`，统一返回图谱、星图和动效能力声明。
+- 收紧自动跨图关联：只保留高置信标签匹配，最多创建 20 条候选，并记录“候选依据”供用户确认。
+- 生成题目不再统一使用“什么是 X”：依据关系、节点类型生成解释关系、迁移应用和 Feynman 题目。
+- 改善本地复习反馈：中文二元组和术语共同计算覆盖度，并返回“主要概念/部分线索/关系不足”三档反馈。
+- 知识问答来源增加标题、摘要和原文片段，便于前端来源卡和后续证据定位。
+
+## 已验证
+
+- `npm run build`：通过，Vite 已完成生产构建和路由代码分包。
+- `python -m compileall -q app`：通过。
+- `python -m unittest tests.test_web_api.WebApiTestCase.test_index_and_vendor_assets tests.test_web_api.WebApiTestCase.test_graphs_list_and_detail tests.test_web_api.WebApiTestCase.test_parse_text_and_upload tests.test_web_api.WebApiTestCase.test_experience_overview_contract -v`：通过。
+- 真实浏览器检查：工作台、材料页、单篇知识脉络、星图和理解练习均能加载；理解练习能够创建会话并显示题目。
+- 深链刷新：`/galaxy`、`/knowledge` 等 React Router 路径由 FastAPI fallback 正常返回新入口；`/api` 与 `/static` 不被 fallback 吞掉。
+
+## 后续阶段
+
+1. 把生成异步任务的 trace 接入新材料页，完成“材料→成图”的真实四条分镜录制。
+2. 将统一结构契约贯穿长文 Map-Reduce、章节子图、证据块、概念对齐和知识路径；增加固定 12 份材料评测集。
+3. 补齐问答多轮会话、来源跳转、关系路径和星图语义缩放/局部展开。
+4. 将报告、设置、文件上传、URL、Vault 和异常态迁移到新壳，清理旧页面默认依赖。
+5. 增加浏览器交互测试、手机/主题/键盘/减少动画验收和 500/2,000/10,000 节点性能记录。
+6. 完成所有阶段后再切换默认入口、删除旧渲染依赖并同步实现代码到 Git。
+
+以上后续项仍按主方案执行；本记录不把原型阶段宣称为完整交付。

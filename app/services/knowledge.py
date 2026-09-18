@@ -43,8 +43,8 @@ def build_knowledge_context(query: str) -> tuple[str, list[dict]]:
     sources: list[dict] = []
     parts: list[str] = []
     for graph in repository.search_graphs(query, limit=5):
-        sources.append({"type": "graph", "id": graph["id"], "title": graph["title"]})
         raw = (graph.get("raw_content") or "")[:600]
+        sources.append({"type": "graph", "id": graph["id"], "title": graph["title"], "snippet": raw[:240]})
         if raw.strip():
             parts.append(f"[脉络 {graph['title']}]\n{raw}")
     for node in repository.search_nodes(query, limit=10):
@@ -53,7 +53,9 @@ def build_knowledge_context(query: str) -> tuple[str, list[dict]]:
             "id": node["id"],
             "graph_id": node["graph_id"],
             "graph_title": node.get("graph_title") or "",
+            "title": node.get("graph_title") or node["label"],
             "label": node["label"],
+            "snippet": (node.get("note") or "")[:240],
         })
         note = (node.get("note") or "")[:400]
         if note.strip():
@@ -73,6 +75,8 @@ def build_knowledge_context(query: str) -> tuple[str, list[dict]]:
             "graph_title": chunk.get("graph_title") or "",
             "chunk_index": chunk.get("chunk_index"),
             "text": (chunk.get("text") or "")[:200],
+            "title": chunk.get("graph_title") or chunk["graph_id"],
+            "snippet": (chunk.get("text") or "")[:240],
         })
         snippet = (chunk.get("text") or "")[:600]
         if snippet.strip():

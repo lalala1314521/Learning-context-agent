@@ -112,8 +112,8 @@ def _due_from_concepts(count: int) -> list[dict]:
                 "graph_id": mention["graph_id"],
                 "graph_title": mention["graph_title"],
                 "node_id": mention["node_id"],
-                "question": f"什么是「{concept['canonical_label']}」？",
-                "answer": concept.get("summary") or concept["canonical_label"],
+                "question": f"请用自己的话解释「{concept['canonical_label']}」，并说明它与一个相关概念的联系。",
+                "answer": concept.get("summary") or f"围绕「{concept['canonical_label']}」说明定义、作用、条件和关系。",
             })
     return items
 
@@ -144,7 +144,7 @@ def _flashcard_items(due: list[dict], count: int) -> list[dict]:
         items.append({
             "id": uuid.uuid4().hex[:12],
             "type": "flashcard",
-            "prompt": item.get("question") or f"什么是「{item.get('node_label') or item.get('concept_label')}」？",
+            "prompt": item.get("question") or f"请解释「{item.get('node_label') or item.get('concept_label')}」解决的问题，并举出一个相关关系。",
             "answer": item.get("answer") or "",
             "meta": {
                 "graph_title": item.get("graph_title"),
@@ -309,11 +309,20 @@ def _grade(item: dict, response: dict) -> str:
         rating = response.get("rating")
         labels = {0: "忘记", 1: "困难", 2: "模糊", 3: "掌握"}
         return f"已记录：{labels.get(rating, '未评分')}"
-    overlap = len(set(re.findall(r"[\w\u4e00-\u9fff]+", text)) & set(
-        re.findall(r"[\w\u4e00-\u9fff]+", answer)
-    ))
-    total = max(1, len(set(re.findall(r"[\w\u4e00-\u9fff]+", answer))))
-    return f"已记录你的回答，关键词覆盖约 {round(overlap / total * 100)}%"
+    def terms(value: str) -> set[str]:
+        words = set(re.findall(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]", value))
+        compact = re.sub(r"\s+", "", value)
+        words.update(compact[index:index + 2] for index in range(max(0, len(compact) - 1)))
+        return {word.lower() for word in words if len(word.strip()) > 0}
+    answer_terms, response_terms = terms(answer), terms(text)
+    overlap = len(answer_terms & response_terms)
+    total = max(1, len(answer_terms))
+    coverage = round(overlap / total * 100)
+    if coverage >= 55:
+        return f"回答已覆盖主要概念（约 {coverage}%），可以再补充一个条件或例子。"
+    if coverage >= 25:
+        return f"回答抓到了部分线索（约 {coverage}%），建议回到证据段补充关系和适用条件。"
+    return "回答与材料的关键关系还不够接近，建议先写出定义、作用和一个证据。"
 
 
 def _next_item(session: dict, item_id: str) -> str | None:

@@ -1,6 +1,8 @@
 # Local environment and secrets
 .env
 .venv/
+frontend/node_modules/
+frontend/.tmp/
 
 # IDE / editor
 .idea/

@@ -42,6 +42,7 @@ def init_db() -> None:
         _ensure_column(conn, "review_progress", "difficulty", "REAL DEFAULT 5.0")
         _ensure_column(conn, "review_progress", "stability", "REAL DEFAULT 1.0")
         _ensure_column(conn, "review_progress", "retrievability", "REAL DEFAULT 1.0")
+        _ensure_column(conn, "knowledge_graphs", "structure_version", "TEXT DEFAULT 'knowledge-structure/v1'")
         conn.commit()
     finally:
         conn.close()

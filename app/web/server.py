@@ -66,8 +66,34 @@ def create_app() -> FastAPI:
 
     @app.get("/", include_in_schema=False)
     def index():
+        built_index = BASE_DIR / "static" / "app" / "index.html"
+        if built_index.exists():
+            return FileResponse(
+                built_index,
+                media_type="text/html; charset=utf-8",
+                headers={"Cache-Control": "no-cache"},
+            )
         return FileResponse(
             BASE_DIR / "templates" / "index.html",
+            media_type="text/html; charset=utf-8",
+            headers={"Cache-Control": "no-cache"},
+        )
+
+    @app.get("/{path:path}", include_in_schema=False)
+    def frontend_route(path: str):
+        """让 React Router 的深链刷新回到新前端，不拦截 API/静态资源。"""
+        if path.startswith("api/") or path.startswith("static/"):
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+        built_index = BASE_DIR / "static" / "app" / "index.html"
+        if built_index.exists():
+            return FileResponse(
+                built_index,
+                media_type="text/html; charset=utf-8",
+                headers={"Cache-Control": "no-cache"},
+            )
+        return FileResponse(
+            BASE_DIR / "templates" / "index.html",
+            media_type="text/html; charset=utf-8",
             headers={"Cache-Control": "no-cache"},
         )
 

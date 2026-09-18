@@ -4,6 +4,8 @@
 消除 repository / service → web 的反向依赖。
 """
 
+import re
+
 from app.logging_config import get_logger
 from app.graph.mermaid_parser import parse_graph_structure
 from app.memory import repository
@@ -16,6 +18,21 @@ def char_overlap(a: str, b: str) -> float:
         return 0
     sa, sb = set(a.lower()), set(b.lower())
     return len(sa & sb) / max(len(sa), len(sb))
+
+
+def _compact_label(value: str) -> str:
+    return re.sub(r"[^\w\u4e00-\u9fff]+", "", (value or "").lower())
+
+
+def _is_confident_match(source: str, target: str) -> bool:
+    source_key, target_key = _compact_label(source), _compact_label(target)
+    if not source_key or not target_key or min(len(source_key), len(target_key)) < 2:
+        return False
+    if source_key == target_key:
+        return True
+    if len(source_key) >= 4 and len(target_key) >= 4 and (source_key in target_key or target_key in source_key):
+        return True
+    return char_overlap(source_key, target_key) >= 0.82
 
 
 def hydrate_nodes(graph_id: str) -> int:
@@ -58,16 +75,19 @@ def auto_link(graph_id: str, nodes: list[dict]) -> list[dict]:
         targets = repository.get_nodes(graph["id"])
         for node in nodes:
             for target in targets:
-                if char_overlap(node["label"], target["label"]) >= 0.5:
+                if _is_confident_match(node["label"], target["label"]):
                     key = (node["id"], graph["id"], target["id"])
                     if key in seen:
                         continue
+                    if len(created) >= 20:
+                        return created
                     link_id = repository.create_link(
                         graph_id,
                         node["id"],
                         graph["id"],
                         target["id"],
                         relation_type="related",
+                        note=f"候选依据：概念标签高度匹配（{node['label']} ↔ {target['label']}），请在关系详情中确认。",
                     )
                     seen.add(key)
                     created.append({
@@ -79,23 +99,34 @@ def auto_link(graph_id: str, nodes: list[dict]) -> list[dict]:
                         "to_node_id": target["id"],
                         "to_node_label": target["label"],
                     })
-    return created[:20]
+    return created
 
 
 def generate_quiz(graph_id: str, nodes: list[dict]) -> int:
-    """为没有题目的节点生成基础回忆题与复习进度。"""
+    """为没有题目的节点生成理解型题目，而不是统一填空。"""
     existing = {q["node_id"] for q in repository.list_quiz(graph_id)}
     count = 0
     for node in nodes:
         if node["id"] in existing:
             continue
-        answer = node.get("note") or f"请回顾：{node['label']}"
+        note = (node.get("note") or "").strip()
+        related = [item for item in (node.get("related_nodes") or []) if item]
+        if related:
+            question = f"请解释「{node['label']}」与它关联的知识点之间有什么关系，并给出一个适用条件。"
+            question_type = "explain_relation"
+        elif node.get("node_type") in {"method", "case"}:
+            question = f"在什么情境下会使用「{node['label']}」？请说明判断依据。"
+            question_type = "transfer"
+        else:
+            question = f"请用自己的话解释「{node['label']}」，并说明它解决的核心问题。"
+            question_type = "feynman"
+        answer = note or f"围绕「{node['label']}」补充材料中的定义、条件和例子。"
         quiz_id = repository.add_quiz_question(
             graph_id,
             node["id"],
-            f"什么是「{node['label']}」？",
+            question,
             answer,
-            question_type="short_answer",
+            question_type=question_type,
         )
         repository.ensure_review(graph_id, node["id"], quiz_id)
         count += 1

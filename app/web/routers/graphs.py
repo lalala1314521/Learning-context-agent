@@ -22,6 +22,7 @@ from app.web.schemas import (
     NodeCreate,
     NodeUpdate,
 )
+from app.services.knowledge_contract import canonical_graph_view
 
 router = APIRouter()
 
@@ -317,10 +318,13 @@ def get_graph(graph_id: str):
         raise ApiError("脉络图不存在", status=404)
     hydrate_nodes(graph_id)
     nodes = repository.get_nodes(graph_id)
+    links = repository.list_links(graph_id)
     return ok({
         "graph": graph,
         "nodes": nodes,
         "concept_links": _concept_links_for_nodes(nodes),
+        "links": links,
+        "structure": canonical_graph_view(graph, nodes, links),
     })
 
 

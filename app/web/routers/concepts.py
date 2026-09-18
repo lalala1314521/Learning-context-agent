@@ -105,6 +105,28 @@ def get_galaxy():
     })
 
 
+@router.get("/experience/overview")
+def get_experience_overview():
+    """一次读取新前端工作台所需的稳定数据契约。"""
+    ensure_database()
+    graphs = repository.list_graphs(limit=50)
+    concepts = repository.list_concepts(limit=1000)
+    links = repository.list_concept_links(limit=10000, min_confidence=0.0)
+    return ok({
+        "version": "knowledge-structure/v1",
+        "graphs": graphs,
+        "galaxy": {
+            "concepts": concepts,
+            "links": links,
+            "domains": repository.list_domains(),
+        },
+        "capabilities": {
+            "motion_modes": ["full", "light", "static"],
+            "scenes": ["workspace", "materials", "knowledge", "galaxy", "ask", "review"],
+        },
+    })
+
+
 @router.post("/domains/refresh")
 def refresh_domains():
     from app.services.domains import refresh_domains as run_refresh

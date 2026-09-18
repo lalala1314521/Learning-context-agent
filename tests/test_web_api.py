@@ -40,6 +40,8 @@ class WebApiTestCase(unittest.TestCase):
         self.assertEqual(index.status_code, 200)
         self.assertIn("学习脉络智能体", index.text)
         self.assertIn('data-page="galaxy"', index.text)
+        self.assertEqual(self.client.get("/galaxy").status_code, 200)
+        self.assertEqual(self.client.get("/knowledge").status_code, 200)
         galaxy_js = self.client.get("/static/js/components/galaxyPanel.js")
         self.assertEqual(galaxy_js.status_code, 200)
         self.assertIn("showGalaxy", galaxy_js.text)
@@ -68,6 +70,14 @@ class WebApiTestCase(unittest.TestCase):
         missing = self.client.get("/api/v1/graphs/not-exist")
         self.assertEqual(missing.status_code, 404)
         self.assertFalse(missing.json()["ok"])
+
+    def test_experience_overview_contract(self):
+        response = self.client.get("/api/v1/experience/overview")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()["data"]
+        self.assertEqual(payload["version"], "knowledge-structure/v1")
+        self.assertIn("galaxy", payload)
+        self.assertEqual(payload["capabilities"]["motion_modes"], ["full", "light", "static"])
 
     def test_parse_text_and_upload(self):
         text_response = self.client.post(

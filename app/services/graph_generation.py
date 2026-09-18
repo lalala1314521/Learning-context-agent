@@ -27,6 +27,7 @@ from app.services.longtext import (
     prepare_book_payload,
 )
 from app.services.mermaid import repair_instruction, validate_mermaid
+from app.services.knowledge_contract import normalize_node_payloads
 
 logger = get_logger("services.graph_generation")
 
@@ -328,7 +329,7 @@ def save_generated_graph(
         if raw_payloads:
             parsed = json.loads(raw_payloads)
             if isinstance(parsed, list):
-                payloads = parsed
+                payloads = normalize_node_payloads(parsed)
     except Exception as exc:
         logger.warning("解析节点数据失败: %s", exc)
         payloads = []
