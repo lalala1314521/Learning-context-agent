@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Handle, MarkerType, MiniMap, Position, ReactFlow, useEdgesState, useNodesState, type Edge, type Node, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import workerUrl from "elkjs/lib/elk-worker.min.js?url";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { motionOrchestrator } from "../motion";
@@ -27,7 +28,7 @@ function GraphCanvas({ nodes, links, selected, onSelect }: { nodes: GraphNode[];
     let cancelled = false;
     const rawNodes = nodes.map((node) => ({ id: node.id, width: 190, height: 70 }));
     const rawEdges = links.map((link, index) => ({ id: link.id || `edge-${index}`, sources: [link.from_node_id || link.source || ""], targets: [link.to_node_id || link.target || ""] })).filter((edge) => edge.sources[0] && edge.targets[0]);
-    import("elkjs/lib/elk.bundled.js").then(({ default: ELK }) => new ELK().layout({ id: "knowledge", layoutOptions: { "elk.algorithm": "layered", "elk.direction": "RIGHT", "elk.spacing.nodeNode": "38", "elk.layered.spacing.nodeNodeBetweenLayers": "110" }, children: rawNodes, edges: rawEdges })).then((layout) => {
+    import("elkjs/lib/elk-api.js").then(({ default: ELK }) => new ELK({ workerUrl }).layout({ id: "knowledge", layoutOptions: { "elk.algorithm": "layered", "elk.direction": "RIGHT", "elk.spacing.nodeNode": "38", "elk.layered.spacing.nodeNodeBetweenLayers": "110" }, children: rawNodes, edges: rawEdges })).then((layout) => {
       if (cancelled) return;
       const positions = new Map((layout.children || []).map((child) => [child.id, { x: child.x || 0, y: child.y || 0 }]));
       setFlowNodes(nodes.map((node) => ({ id: node.id, type: "knowledge", position: positions.get(node.id) || { x: 0, y: 0 }, data: { label: node.label, note: node.note, nodeType: node.node_type, selected: selected === node.id, onSelect: () => onSelect(node) } })));

@@ -13,7 +13,7 @@
 
 ### 阶段 1：关键效果原型与新应用壳
 
-- 建立 `frontend/` React + TypeScript + Vite 工程，路由分包并生成 FastAPI 可直接提供的静态构建。
+- 建立 `frontend/` React + TypeScript + Vite 工程，路由分包并生成 FastAPI 可直接提供的静态构建；单篇图谱的 ELK 布局通过延迟加载的 Worker 计算，不阻塞主线程。
 - 建立六个业务场景：工作台、材料与生成、知识脉络、知识星图、知识问答、理解练习。
 - 建立统一 `MotionOrchestrator`：场景版本、对象 ID、事件、完整/轻量/静态三档动效和 `prefers-reduced-motion` 入口。
 - 工作台使用跨页面共享的线条母题；材料页使用生成过程分镜；单篇图使用 SVG 路径描线和节点聚焦；页面切换使用共享的场景进入/离开过渡。
