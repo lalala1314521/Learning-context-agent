@@ -14,7 +14,8 @@ type Listener = (event: MotionEvent) => void;
 class MotionOrchestrator {
   private version = 0;
   private listeners = new Set<Listener>();
-  private reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  private systemReduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  private mode: "full" | "light" | "static" = "full";
 
   subscribe(listener: Listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   emit(name: MotionEventName, objectId?: string) {
@@ -22,8 +23,8 @@ class MotionOrchestrator {
     this.listeners.forEach((listener) => listener(event));
     return event;
   }
-  isReduced() { return this.reduced || document.documentElement.dataset.motion === "static"; }
-  setMode(mode: "full" | "light" | "static") { document.documentElement.dataset.motion = mode; this.reduced = mode === "static"; }
+  isReduced() { return this.systemReduced || this.mode === "static"; }
+  setMode(mode: "full" | "light" | "static") { this.mode = mode; document.documentElement.dataset.motion = mode; }
 }
 
 export const motionOrchestrator = new MotionOrchestrator();
