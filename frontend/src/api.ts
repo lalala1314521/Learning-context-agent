@@ -22,6 +22,8 @@ export const api = {
   galaxy: () => request<GalaxyData>("/galaxy"),
   ask: (question: string, useDatabase = true) =>
     request<AskResult>("/ask", { method: "POST", body: JSON.stringify({ question, use_database: useDatabase }) }),
+  askAsync: (question: string, useDatabase = true) =>
+    request<{ id: string }>("/ask/async", { method: "POST", body: JSON.stringify({ question, use_database: useDatabase }) }),
   parse: (text: string) => request<{ content: string; preview: Record<string, unknown> }>("/graphs/parse", {
     method: "POST",
     headers: {},
@@ -32,6 +34,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ content, output_format: "both", web_search_enabled: webSearchEnabled, auto_link: true }),
     }),
+  generateAsync: (content: string, webSearchEnabled = false) =>
+    request<{ id: string }>("/graphs/generate/async", {
+      method: "POST",
+      body: JSON.stringify({ content, output_format: "both", web_search_enabled: webSearchEnabled, auto_link: true }),
+    }),
+  job: (id: string) => request<{ status: string; stage?: string; progress?: number; trace?: Array<{ text?: string; type?: string }>; result?: { id?: string } }>(`/jobs/${encodeURIComponent(id)}`),
   reviewSession: (mode = "feynman") => request<{ id: string; mode: string; items: Array<Record<string, unknown>> }>("/review/session", {
     method: "POST", body: JSON.stringify({ mode, count: 6 }),
   }),
