@@ -124,7 +124,7 @@ def _web_retrieval(query: str, fetch_top: int = 1) -> tuple[list[str], list[dict
             continue
         text = page["content"][:4000]
         title = page.get("title") or r.get("title", "")
-        parts.insert(0, f"[官方正文 · {title}]({url})\n{text}")
+        parts.insert(0, f"[网页正文 · {title}]({url})\n{text}")
         fetched += 1
     return parts, sources
 

@@ -135,13 +135,14 @@ def refresh_domains():
 
 @router.get("/concepts/{start_id}/path/{end_id}")
 def concept_path(start_id: str, end_id: str):
-    from app.services.knowledge_path import explain_path, find_shortest_path
-    path = find_shortest_path(start_id, end_id)
+    from app.services.knowledge_path import explain_path, find_shortest_path_with_edges
+    path, relations = find_shortest_path_with_edges(start_id, end_id)
     if not path:
         return ok({"path": [], "explanation": "当前概念网络中没有连通路径"})
     return ok({
         "path": path,
-        "explanation": explain_path(path),
+        "relations": relations,
+        "explanation": explain_path(path, relations=relations),
     })
 
 
