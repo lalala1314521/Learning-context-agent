@@ -66,6 +66,8 @@ class WebApiTestCase(unittest.TestCase):
         payload = detail.json()["data"]
         self.assertEqual(payload["graph"]["id"], graph_id)
         self.assertEqual(len(payload["nodes"]), 2)
+        self.assertEqual(payload["structure"]["version"], "knowledge-structure/v1")
+        self.assertGreaterEqual(len(payload["structure"]["edges"]), 1)
 
         missing = self.client.get("/api/v1/graphs/not-exist")
         self.assertEqual(missing.status_code, 404)
