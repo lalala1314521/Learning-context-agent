@@ -34,7 +34,7 @@ export function GalaxyScene() {
   const selectedRelations = useMemo(() => selected && data && !selected.id.startsWith("domain:") ? data.links.filter((link) => link.from_concept === selected.id || link.to_concept === selected.id).slice(0, 6) : [], [data, selected]);
   const labelFor = useCallback((id: string) => data?.concepts.find((concept) => concept.id === id)?.canonical_label || id, [data]);
   const selectConcept = useCallback((concept: Concept) => { setSelected(concept); setSelectedRelation(null); if (concept.id.startsWith("domain:")) { setZoom(1); setFocusId(""); } motionOrchestrator.emit("concept.focused", concept.id); }, []);
-  return <div className="galaxy-layout"><section className="panel galaxy-panel"><div className="section-heading"><div><span className="eyebrow">GLOBAL KNOWLEDGE SPACE</span><h2>让概念彼此找到</h2></div><div className="galaxy-tools"><span className="status-chip">{zoom < .9 ? "领域总览" : `${data?.concepts.length || 0} 概念`}</span><button className="icon-button" title="缩小镜头" onClick={() => setZoom((value) => Math.max(.65, value - .15))}>−</button><button className="icon-button" title="放大镜头" onClick={() => setZoom((value) => Math.min(1.8, value + .15))}>＋</button><button className="icon-button" title="重置镜头" onClick={() => { setZoom(.85); setFocusId(""); setQuery(""); setSelected(null); setSelectedRelation(null); motionOrchestrator.emit("scene.entered", "galaxy-reset"); }}>◎</button></div></div><div className="galaxy-search"><span>⌕</span><input ref={searchRef} value={query} onChange={(event) => { setQuery(event.target.value); if (event.target.value.trim()) setZoom(1); }} onKeyDown={(event) => { if (event.key === "Enter" && displayData?.concepts[0]) { selectConcept(displayData.concepts[0]); } }} placeholder="搜索概念，定位局部关系（/ 聚焦）" /><small>{query ? `${displayData?.concepts.length || 0} 个匹配` : zoom < .9 ? "领域聚合" : "总览"}</small></div><div className="galaxy-stage">{displayData ? <PixiGalaxy data={displayData} zoom={zoom} focusId={focusId} selectedId={selected?.id} onSelect={selectConcept} /> : <div className="scene-loading">正在铺开领域与关系…</div>}<div className="galaxy-overlay"><span><i className="legend-dot root" />领域光场</span><span><i className="legend-dot" />概念</span><span><i className="legend-line" />真实关系</span></div></div></section><aside className="panel galaxy-inspector"><span className="eyebrow">CONCEPT SIGNAL</span>{selected ? <><h3>{selected.canonical_label}</h3><p>{selected.description || (selected.id.startsWith("domain:") ? "缩小视图中的领域聚合。放大镜头可展开其中的概念与真实关系。" : "这个概念还没有摘要。")}</p><div className="signal-card"><small>来自材料</small><strong>{selected.mention_count || 0} 次提及</strong></div><div className="signal-card"><small>掌握状态</small><strong>{selected.mastery?.mastery || "未复习"}</strong></div>{selectedRelations.length > 0 && <div className="relation-list"><small>真实关系 · 点击查看证据</small>{selectedRelations.map((link) => <button key={link.id} className={`relation-card ${selectedRelation?.id === link.id ? "is-selected" : ""}`} onClick={() => { setSelectedRelation(link); motionOrchestrator.emit("relation.selected", link.id); }}><b>{labelFor(link.from_concept)} —{link.relation_type || "related"}→ {labelFor(link.to_concept)}</b><em>{link.status || "pending"}</em></button>)}</div>}{selectedRelation && <div className="evidence-box"><small>关系证据</small><span>{selectedRelation.evidence || "这条关系暂时没有独立证据摘录。"}</span></div>}{!selected.id.startsWith("domain:") && <button className="soft-button" onClick={() => setFocusId(selected.id)}>展开邻域 ↗</button>}</> : <div className="empty-state"><span className="empty-glyph">✺</span><p>点击星体，查看概念来源、关系和学习信号。</p></div>}</aside></div>;
+  return <div className="galaxy-layout"><section className="panel galaxy-panel"><div className="section-heading"><div><span className="eyebrow">GLOBAL KNOWLEDGE SPACE</span><h2>让概念彼此找到</h2></div><div className="galaxy-tools"><span className="status-chip">{zoom < .9 ? "领域总览" : `${data?.concepts.length || 0} 概念`}</span><button className="icon-button" title="缩小镜头" onClick={() => setZoom((value) => Math.max(.65, value - .15))}>−</button><button className="icon-button" title="放大镜头" onClick={() => setZoom((value) => Math.min(1.8, value + .15))}>＋</button><button className="icon-button" title="重置镜头" onClick={() => { setZoom(.85); setFocusId(""); setQuery(""); setSelected(null); setSelectedRelation(null); motionOrchestrator.emit("scene.entered", "galaxy-reset"); }}>◎</button></div></div><div className="galaxy-search"><span>⌕</span><input ref={searchRef} value={query} onChange={(event) => { setQuery(event.target.value); if (event.target.value.trim()) setZoom(1); }} onKeyDown={(event) => { if (event.key === "Enter" && displayData?.concepts[0]) { selectConcept(displayData.concepts[0]); } }} placeholder="搜索概念，定位局部关系（/ 聚焦）" /><small>{query ? `${displayData?.concepts.length || 0} 个匹配` : zoom < .9 ? "领域聚合" : "总览"}</small></div><div className="galaxy-stage">{displayData ? <PixiGalaxy data={displayData} zoom={zoom} focusId={focusId} selectedId={selected?.id} selectedRelationId={selectedRelation?.id} onSelect={selectConcept} /> : <div className="scene-loading">正在铺开领域与关系…</div>}<div className="galaxy-overlay"><span><i className="legend-dot root" />领域光场</span><span><i className="legend-dot" />概念</span><span><i className="legend-line" />真实关系 · 方向箭头</span></div></div></section><aside className="panel galaxy-inspector"><span className="eyebrow">CONCEPT SIGNAL</span>{selected ? <><h3>{selected.canonical_label}</h3><p>{selected.description || (selected.id.startsWith("domain:") ? "缩小视图中的领域聚合。放大镜头可展开其中的概念与真实关系。" : "这个概念还没有摘要。")}</p><div className="signal-card"><small>来自材料</small><strong>{selected.mention_count || 0} 次提及</strong></div><div className="signal-card"><small>掌握状态</small><strong>{selected.mastery?.mastery || "未复习"}</strong></div>{selectedRelations.length > 0 && <div className="relation-list"><small>真实关系 · 点击查看证据</small>{selectedRelations.map((link) => <button key={link.id} className={`relation-card ${selectedRelation?.id === link.id ? "is-selected" : ""}`} onClick={() => { setSelectedRelation(link); motionOrchestrator.emit("relation.selected", link.id); }}><b>{labelFor(link.from_concept)} —{link.relation_type || "related"}→ {labelFor(link.to_concept)}</b><em>{link.status || "pending"}</em></button>)}</div>}{selectedRelation && <div className="evidence-box"><small>关系证据</small><span>{selectedRelation.evidence || "这条关系暂时没有独立证据摘录。"}</span></div>}{!selected.id.startsWith("domain:") && <button className="soft-button" onClick={() => setFocusId(selected.id)}>展开邻域 ↗</button>}</> : <div className="empty-state"><span className="empty-glyph">✺</span><p>点击星体，查看概念来源、关系和学习信号。</p></div>}</aside></div>;
 }
 
 function compressGalaxy(data: GalaxyData): GalaxyData {
@@ -72,14 +72,20 @@ function domainOverview(data: GalaxyData): GalaxyData {
   return { ...data, concepts, links };
 }
 
-function PixiGalaxy({ data, zoom, focusId, selectedId, onSelect }: { data: GalaxyData; zoom: number; focusId?: string; selectedId?: string; onSelect: (concept: Concept) => void }) {
+type Vec2 = { x: number; y: number };
+type Curve = { from: Vec2; c1: Vec2; c2: Vec2; to: Vec2 };
+type SelectionAnimation = { curve?: Curve; marker?: Graphics; phase: number };
+
+function PixiGalaxy({ data, zoom, focusId, selectedId, selectedRelationId, onSelect }: { data: GalaxyData; zoom: number; focusId?: string; selectedId?: string; selectedRelationId?: string; onSelect: (concept: Concept) => void }) {
   const host = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
   const targetZoomRef = useRef(zoom);
   const selectedRef = useRef(selectedId);
-  const selectionApiRef = useRef<((id?: string) => void) | null>(null);
+  const selectedRelationRef = useRef(selectedRelationId);
+  const selectionApiRef = useRef<((id?: string, relationId?: string) => void) | null>(null);
   targetZoomRef.current = zoom;
   selectedRef.current = selectedId;
+  selectedRelationRef.current = selectedRelationId;
   const overviewMode = zoom < .9 && !focusId;
   useEffect(() => {
     if (!host.current) return;
@@ -101,7 +107,7 @@ function PixiGalaxy({ data, zoom, focusId, selectedId, onSelect }: { data: Galax
       // 七层场景：背景、光场、关系、领域、星体、标签、焦点。每层只负责一种语义。
       const backgroundLayer = new Graphics().rect(0, 0, width / layoutZoom, height / layoutZoom).fill({ color: 0x080d1d, alpha: .24 });
       const fieldLayer = new Container();
-      const relationLayer = new Graphics();
+      const relationLayer = new Container();
       const domainLayer = new Graphics();
       const starLayer = new Container();
       const labelLayer = new Container();
@@ -128,7 +134,14 @@ function PixiGalaxy({ data, zoom, focusId, selectedId, onSelect }: { data: Galax
         const from = byId.get(link.from_concept); const to = byId.get(link.to_concept);
         if (!from || !to) return;
         const active = !focusIds || focusIds.has(link.from_concept) || focusIds.has(link.to_concept);
-        relationLayer.moveTo(from.x, from.y).bezierCurveTo((from.x + to.x) / 2, from.y - 22, (from.x + to.x) / 2, to.y + 22, to.x, to.y).stroke({ color: 0x6383d9, alpha: active ? .42 : .06, width: active ? 1.7 : 1 });
+        const curve = curveFor(from, to);
+        const relation = new Graphics().moveTo(from.x, from.y).bezierCurveTo(curve.c1.x, curve.c1.y, curve.c2.x, curve.c2.y, to.x, to.y).stroke({ color: 0x6383d9, alpha: active ? .42 : .06, width: active ? 1.7 : 1 });
+        relationLayer.addChild(relation);
+        const arrowPoint = cubicPoint(curve, .94);
+        const tangent = cubicTangent(curve, .94);
+        const arrowSize = active ? 5 : 3.5;
+        const arrow = new Graphics().moveTo(-arrowSize, -arrowSize * .65).lineTo(0, 0).lineTo(-arrowSize, arrowSize * .65).stroke({ color: 0x87a7ff, alpha: active ? .52 : .1, width: active ? 1.15 : .8 });
+        arrow.position.set(arrowPoint.x, arrowPoint.y); arrow.rotation = Math.atan2(tangent.y, tangent.x); relationLayer.addChild(arrow);
       });
 
       const labelStyle = new TextStyle({ fontFamily: "Microsoft YaHei, sans-serif", fontSize: 12, fill: 0xdbe7ff, fontWeight: "500" });
@@ -144,38 +157,72 @@ function PixiGalaxy({ data, zoom, focusId, selectedId, onSelect }: { data: Galax
       points.forEach((point) => {
         const active = !focusIds || focusIds.has(point.id); const concept = renderData.concepts.find((item) => item.id === point.id); if (!concept) return;
         const star = new Graphics().circle(point.x, point.y, point.radius).fill({ color: point.color, alpha: active ? .94 : .16 });
-        star.circle(point.x, point.y, point.radius + (selectedId === point.id ? 10 : 7)).stroke({ color: point.color, alpha: selectedId === point.id ? .55 : active ? .12 : .03, width: selectedId === point.id ? 2 : 1 });
+        star.circle(point.x, point.y, point.radius + 7).stroke({ color: point.color, alpha: active ? .12 : .03, width: 1 });
         star.eventMode = "static"; star.cursor = "pointer"; star.on("pointertap", () => onSelect(concept)); starLayer.addChild(star);
         if (point.labelVisible || focusIds?.has(point.id)) { const label = new Text({ text: point.label, style: labelStyle }); label.alpha = active ? 1 : .2; label.x = point.labelX ?? point.x + point.radius + 7; label.y = point.labelY ?? point.y - 7; labelLayer.addChild(label); }
       });
 
-      const updateSelection = (id?: string) => {
+      let selectionAnimation: SelectionAnimation | undefined;
+      const updateSelection = (id?: string, relationId?: string) => {
         const removed = focusLayer.removeChildren();
         removed.forEach((child) => child.destroy());
+        selectionAnimation = undefined;
         const selectedPoint = byId.get(id || "");
         if (!selectedPoint) return;
         const pulse = new Graphics().circle(selectedPoint.x, selectedPoint.y, selectedPoint.radius + 14).stroke({ color: 0x74e4d2, alpha: .32, width: 1.5 });
         focusLayer.addChild(pulse);
+        const selectedLink = relationId ? renderData.links.find((link) => link.id === relationId) : undefined;
+        const from = selectedLink ? byId.get(selectedLink.from_concept) : undefined;
+        const to = selectedLink ? byId.get(selectedLink.to_concept) : undefined;
+        if (from && to) {
+          const curve = curveFor(from, to);
+          const edge = new Graphics().moveTo(from.x, from.y).bezierCurveTo(curve.c1.x, curve.c1.y, curve.c2.x, curve.c2.y, to.x, to.y).stroke({ color: 0x74e4d2, alpha: .86, width: 2.5 });
+          const marker = new Graphics().circle(from.x, from.y, 4.5).fill({ color: 0x74e4d2, alpha: .9 });
+          focusLayer.addChild(edge, marker);
+          selectionAnimation = { curve, marker, phase: 0 };
+        }
       };
       selectionApiRef.current = updateSelection;
-      updateSelection(selectedRef.current);
+      updateSelection(selectedRef.current, selectedRelationRef.current);
       let phase = 0;
       app.ticker.add((ticker) => {
         const pulse = focusLayer.children[0] as Graphics | undefined;
-        if (motionOrchestrator.isReduced() || !pulse) return;
+        if (motionOrchestrator.isReduced()) return;
         phase += ticker.deltaTime * .035;
-        pulse.scale.set(1 + Math.sin(phase) * .08);
-        pulse.alpha = .22 + (Math.sin(phase) + 1) * .08;
-        fieldLayer.alpha = .82 + Math.sin(phase * .4) * .08;
+        if (pulse) {
+          pulse.scale.set(1 + Math.sin(phase) * .08);
+          pulse.alpha = .22 + (Math.sin(phase) + 1) * .08;
+          fieldLayer.alpha = .82 + Math.sin(phase * .4) * .08;
+        }
+        if (selectionAnimation?.curve && selectionAnimation.marker) {
+          selectionAnimation.phase = (selectionAnimation.phase + ticker.deltaTime * .006) % 1;
+          const point = cubicPoint(selectionAnimation.curve, selectionAnimation.phase);
+          selectionAnimation.marker.position.set(point.x, point.y);
+          selectionAnimation.marker.alpha = .45 + Math.sin(selectionAnimation.phase * Math.PI) * .55;
+        }
       });
       setReady(true);
     });
     return () => { disposed = true; selectionApiRef.current = null; app.destroy(true, { children: true }); root.replaceChildren(); };
   }, [data, focusId, onSelect, overviewMode]);
   useEffect(() => {
-    selectionApiRef.current?.(selectedId);
-  }, [selectedId]);
+    selectionApiRef.current?.(selectedId, selectedRelationId);
+  }, [selectedId, selectedRelationId]);
   return <div ref={host} className={`pixi-host ${ready ? "is-ready" : ""}`} aria-label="全局知识星图" />;
+}
+
+function curveFor(from: Point, to: Point): Curve {
+  return { from, c1: { x: (from.x + to.x) / 2, y: from.y - 22 }, c2: { x: (from.x + to.x) / 2, y: to.y + 22 }, to };
+}
+
+function cubicPoint(curve: Curve, t: number): Vec2 {
+  const inverse = 1 - t;
+  return { ...curve.from, x: inverse ** 3 * curve.from.x + 3 * inverse ** 2 * t * curve.c1.x + 3 * inverse * t ** 2 * curve.c2.x + t ** 3 * curve.to.x, y: inverse ** 3 * curve.from.y + 3 * inverse ** 2 * t * curve.c1.y + 3 * inverse * t ** 2 * curve.c2.y + t ** 3 * curve.to.y };
+}
+
+function cubicTangent(curve: Curve, t: number): Vec2 {
+  const inverse = 1 - t;
+  return { ...curve.from, x: 3 * inverse ** 2 * (curve.c1.x - curve.from.x) + 6 * inverse * t * (curve.c2.x - curve.c1.x) + 3 * t ** 2 * (curve.to.x - curve.c2.x), y: 3 * inverse ** 2 * (curve.c1.y - curve.from.y) + 6 * inverse * t * (curve.c2.y - curve.c1.y) + 3 * t ** 2 * (curve.to.y - curve.c2.y) };
 }
 
 function project(concepts: Concept[], domains: Domain[], width: number, height: number): Point[] {
