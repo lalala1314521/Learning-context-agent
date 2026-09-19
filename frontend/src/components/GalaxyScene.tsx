@@ -14,9 +14,9 @@ export function GalaxyScene() {
   const [selected, setSelected] = useState<Concept | null>(null);
   const [query, setQuery] = useState("");
   const [focusId, setFocusId] = useState("");
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState(.85);
   const requestedConcept = params.get("concept") || "";
-  useEffect(() => { api.galaxy().then((payload) => { setData(payload); const target = payload.concepts.find((item) => item.id === requestedConcept || item.canonical_label === requestedConcept); if (target) { setSelected(target); setFocusId(target.id); } motionOrchestrator.emit("scene.entered", "galaxy"); }).catch(() => setData({ concepts: [], links: [], domains: [] })); }, [requestedConcept]);
+  useEffect(() => { api.galaxy().then((payload) => { setData(payload); const target = payload.concepts.find((item) => item.id === requestedConcept || item.canonical_label === requestedConcept); if (target) { setSelected(target); setFocusId(target.id); setZoom(1.05); } motionOrchestrator.emit("scene.entered", "galaxy"); }).catch(() => setData({ concepts: [], links: [], domains: [] })); }, [requestedConcept]);
   useEffect(() => { const onKey = (event: KeyboardEvent) => { if (event.key === "/" && document.activeElement?.tagName !== "INPUT") { event.preventDefault(); searchRef.current?.focus(); } if (event.key === "Escape") { setQuery(""); setFocusId(""); searchRef.current?.blur(); } }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, []);
   const compact = useMemo(() => data ? compressGalaxy(data) : null, [data]);
   const displayData = useMemo(() => {
@@ -30,8 +30,8 @@ export function GalaxyScene() {
     });
     return { ...compact, concepts };
   }, [compact, focusId, query]);
-  const selectConcept = useCallback((concept: Concept) => { setSelected(concept); setFocusId(concept.id); motionOrchestrator.emit("concept.focused", concept.id); }, []);
-  return <div className="galaxy-layout"><section className="panel galaxy-panel"><div className="section-heading"><div><span className="eyebrow">GLOBAL KNOWLEDGE SPACE</span><h2>让概念彼此找到</h2></div><div className="galaxy-tools"><span className="status-chip">{data?.concepts.length || 0} 概念</span><button className="icon-button" title="缩小镜头" onClick={() => setZoom((value) => Math.max(.65, value - .15))}>−</button><button className="icon-button" title="放大镜头" onClick={() => setZoom((value) => Math.min(1.8, value + .15))}>＋</button><button className="icon-button" title="重置镜头" onClick={() => { setZoom(1); setFocusId(""); setQuery(""); motionOrchestrator.emit("scene.entered", "galaxy-reset"); }}>◎</button></div></div><div className="galaxy-search"><span>⌕</span><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && displayData?.concepts[0]) { selectConcept(displayData.concepts[0]); } }} placeholder="搜索概念，定位局部关系（/ 聚焦）" /><small>{query ? `${displayData?.concepts.length || 0} 个匹配` : "总览"}</small></div><div className="galaxy-stage">{displayData ? <PixiGalaxy data={displayData} zoom={zoom} focusId={focusId} selectedId={selected?.id} onSelect={selectConcept} /> : <div className="scene-loading">正在铺开领域与关系…</div>}<div className="galaxy-overlay"><span><i className="legend-dot root" />领域光场</span><span><i className="legend-dot" />概念</span><span><i className="legend-line" />真实关系</span></div></div></section><aside className="panel galaxy-inspector"><span className="eyebrow">CONCEPT SIGNAL</span>{selected ? <><h3>{selected.canonical_label}</h3><p>{selected.description || "这个概念还没有摘要。"}</p><div className="signal-card"><small>来自材料</small><strong>{selected.mention_count || 0} 次提及</strong></div><div className="signal-card"><small>掌握状态</small><strong>{selected.mastery?.mastery || "未复习"}</strong></div><button className="soft-button" onClick={() => setFocusId(selected.id)}>展开邻域 ↗</button></> : <div className="empty-state"><span className="empty-glyph">✺</span><p>点击星体，查看概念来源、关系和学习信号。</p></div>}</aside></div>;
+  const selectConcept = useCallback((concept: Concept) => { setSelected(concept); if (concept.id.startsWith("domain:")) { setZoom(1); setFocusId(""); } else setFocusId(concept.id); motionOrchestrator.emit("concept.focused", concept.id); }, []);
+  return <div className="galaxy-layout"><section className="panel galaxy-panel"><div className="section-heading"><div><span className="eyebrow">GLOBAL KNOWLEDGE SPACE</span><h2>让概念彼此找到</h2></div><div className="galaxy-tools"><span className="status-chip">{zoom < .9 ? "领域总览" : `${data?.concepts.length || 0} 概念`}</span><button className="icon-button" title="缩小镜头" onClick={() => setZoom((value) => Math.max(.65, value - .15))}>−</button><button className="icon-button" title="放大镜头" onClick={() => setZoom((value) => Math.min(1.8, value + .15))}>＋</button><button className="icon-button" title="重置镜头" onClick={() => { setZoom(.85); setFocusId(""); setQuery(""); setSelected(null); motionOrchestrator.emit("scene.entered", "galaxy-reset"); }}>◎</button></div></div><div className="galaxy-search"><span>⌕</span><input ref={searchRef} value={query} onChange={(event) => { setQuery(event.target.value); if (event.target.value.trim()) setZoom(1); }} onKeyDown={(event) => { if (event.key === "Enter" && displayData?.concepts[0]) { selectConcept(displayData.concepts[0]); } }} placeholder="搜索概念，定位局部关系（/ 聚焦）" /><small>{query ? `${displayData?.concepts.length || 0} 个匹配` : zoom < .9 ? "领域聚合" : "总览"}</small></div><div className="galaxy-stage">{displayData ? <PixiGalaxy data={displayData} zoom={zoom} focusId={focusId} selectedId={selected?.id} onSelect={selectConcept} /> : <div className="scene-loading">正在铺开领域与关系…</div>}<div className="galaxy-overlay"><span><i className="legend-dot root" />领域光场</span><span><i className="legend-dot" />概念</span><span><i className="legend-line" />真实关系</span></div></div></section><aside className="panel galaxy-inspector"><span className="eyebrow">CONCEPT SIGNAL</span>{selected ? <><h3>{selected.canonical_label}</h3><p>{selected.description || (selected.id.startsWith("domain:") ? "缩小视图中的领域聚合。放大镜头可展开其中的概念与真实关系。" : "这个概念还没有摘要。")}</p><div className="signal-card"><small>来自材料</small><strong>{selected.mention_count || 0} 次提及</strong></div><div className="signal-card"><small>掌握状态</small><strong>{selected.mastery?.mastery || "未复习"}</strong></div>{!selected.id.startsWith("domain:") && <button className="soft-button" onClick={() => setFocusId(selected.id)}>展开邻域 ↗</button>}</> : <div className="empty-state"><span className="empty-glyph">✺</span><p>点击星体，查看概念来源、关系和学习信号。</p></div>}</aside></div>;
 }
 
 function compressGalaxy(data: GalaxyData): GalaxyData {
@@ -41,6 +41,32 @@ function compressGalaxy(data: GalaxyData): GalaxyData {
   const domains = [...topDomains];
   if (otherConcepts.length) domains.push({ id: "other", name: "其他领域", color: "#7180ad", concept_count: otherConcepts.length });
   return { ...data, domains, concepts: data.concepts.map((concept) => ({ ...concept, domain_id: concept.domain_id && topIds.has(concept.domain_id) ? concept.domain_id : (otherConcepts.length ? "other" : concept.domain_id) })) };
+}
+
+function domainOverview(data: GalaxyData): GalaxyData {
+  const domainIds = new Set(data.domains.map((domain) => domain.id));
+  const concepts = data.domains.map((domain) => ({
+    id: `domain:${domain.id}`,
+    canonical_label: domain.name,
+    description: `${domain.concept_count || 0} 个概念的领域聚合`,
+    domain_id: domain.id,
+    mention_count: domain.concept_count || 1,
+  }));
+  const conceptDomain = new Map(data.concepts.map((concept) => [concept.id, concept.domain_id || "other"]));
+  const seen = new Set<string>();
+  const links: ConceptLink[] = [];
+  data.links.forEach((link) => {
+    const fromDomain = conceptDomain.get(link.from_concept);
+    const toDomain = conceptDomain.get(link.to_concept);
+    if (!fromDomain || !toDomain || fromDomain === toDomain || (!domainIds.has(fromDomain) && fromDomain !== "other") || (!domainIds.has(toDomain) && toDomain !== "other") ) return;
+    const from = `domain:${fromDomain}`;
+    const to = `domain:${toDomain}`;
+    const key = `${from}:${to}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    links.push({ id: `domain-link:${fromDomain}:${toDomain}`, from_concept: from, to_concept: to, relation_type: "domain", status: "confirmed", evidence: "由领域间真实概念关系聚合" });
+  });
+  return { ...data, concepts, links };
 }
 
 function PixiGalaxy({ data, zoom, focusId, selectedId, onSelect }: { data: GalaxyData; zoom: number; focusId?: string; selectedId?: string; onSelect: (concept: Concept) => void }) {
@@ -56,9 +82,11 @@ function PixiGalaxy({ data, zoom, focusId, selectedId, onSelect }: { data: Galax
       root.appendChild(app.canvas);
       const scene = new Container(); scene.scale.set(zoom); app.stage.addChild(scene);
       const width = root.clientWidth || 700; const height = root.clientHeight || 520;
-      const points = project(data.concepts, data.domains, width / zoom, height / zoom);
+      const overview = zoom < .9 && !focusId;
+      const renderData = overview ? domainOverview(data) : data;
+      const points = project(renderData.concepts, renderData.domains, width / zoom, height / zoom);
       const byId = new Map(points.map((point) => [point.id, point]));
-      const focusIds = focusId ? new Set([focusId, ...data.links.flatMap((link) => link.from_concept === focusId ? [link.to_concept] : link.to_concept === focusId ? [link.from_concept] : [])]) : null;
+      const focusIds = focusId ? new Set([focusId, ...renderData.links.flatMap((link) => link.from_concept === focusId ? [link.to_concept] : link.to_concept === focusId ? [link.from_concept] : [])]) : null;
 
       // 七层场景：背景、光场、关系、领域、星体、标签、焦点。每层只负责一种语义。
       const backgroundLayer = new Graphics().rect(0, 0, width / zoom, height / zoom).fill({ color: 0x080d1d, alpha: .24 });
@@ -75,7 +103,7 @@ function PixiGalaxy({ data, zoom, focusId, selectedId, onSelect }: { data: Galax
         fieldLayer.addChild(glow);
       }
 
-      data.links.forEach((link) => {
+      renderData.links.forEach((link) => {
         const from = byId.get(link.from_concept); const to = byId.get(link.to_concept);
         if (!from || !to) return;
         const active = !focusIds || focusIds.has(link.from_concept) || focusIds.has(link.to_concept);
@@ -84,7 +112,7 @@ function PixiGalaxy({ data, zoom, focusId, selectedId, onSelect }: { data: Galax
 
       const labelStyle = new TextStyle({ fontFamily: "Microsoft YaHei, sans-serif", fontSize: 12, fill: 0xdbe7ff, fontWeight: "500" });
       const domainStyle = new TextStyle({ fontFamily: "Microsoft YaHei, sans-serif", fontSize: 11, fill: 0x9aa9d5, fontWeight: "700" });
-      data.domains.forEach((domain) => {
+      renderData.domains.forEach((domain) => {
         const domainPoints = points.filter((point) => point.domainId === domain.id); if (!domainPoints.length) return;
         const minX = Math.min(...domainPoints.map((point) => point.x)) - 32; const maxX = Math.max(...domainPoints.map((point) => point.x)) + 32; const minY = Math.min(...domainPoints.map((point) => point.y)) - 32; const maxY = Math.max(...domainPoints.map((point) => point.y)) + 32;
         const color = Number((domain.color || "#596fae").replace("#", "0x"));
@@ -93,7 +121,7 @@ function PixiGalaxy({ data, zoom, focusId, selectedId, onSelect }: { data: Galax
       });
 
       points.forEach((point) => {
-        const active = !focusIds || focusIds.has(point.id); const concept = data.concepts.find((item) => item.id === point.id); if (!concept) return;
+        const active = !focusIds || focusIds.has(point.id); const concept = renderData.concepts.find((item) => item.id === point.id); if (!concept) return;
         const star = new Graphics().circle(point.x, point.y, point.radius).fill({ color: point.color, alpha: active ? .94 : .16 });
         star.circle(point.x, point.y, point.radius + (selectedId === point.id ? 10 : 7)).stroke({ color: point.color, alpha: selectedId === point.id ? .55 : active ? .12 : .03, width: selectedId === point.id ? 2 : 1 });
         star.eventMode = "static"; star.cursor = "pointer"; star.on("pointertap", () => onSelect(concept)); starLayer.addChild(star);
