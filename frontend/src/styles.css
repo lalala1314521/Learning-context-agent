@@ -106,6 +106,8 @@
 .scene-handoff small { color: var(--cyan); font-size: 10px; letter-spacing: .08em; }
 .scene-handoff b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .scene-handoff em { margin-left: auto; color: var(--muted); font-size: 10px; font-style: normal; white-space: nowrap; }
+.inspector-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.inspector-actions .soft-button { display: inline-flex; align-items: center; }
 @keyframes handoff-in { from { opacity: 0; transform: translateY(-9px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes handoff-beam { from { opacity: .45; transform: scaleX(.72); transform-origin: left; } to { opacity: 1; transform: scaleX(1); transform-origin: left; } }
 :root[data-motion="static"] .scene-handoff, :root[data-motion="static"] .scene-handoff-beam { animation: none; }
