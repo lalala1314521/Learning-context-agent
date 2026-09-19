@@ -44,7 +44,7 @@ def build_knowledge_context(query: str) -> tuple[str, list[dict]]:
     parts: list[str] = []
     for graph in repository.search_graphs(query, limit=5):
         raw = (graph.get("raw_content") or "")[:600]
-        sources.append({"type": "graph", "id": graph["id"], "title": graph["title"], "snippet": raw[:240]})
+        sources.append({"type": "graph", "id": graph["id"], "graph_id": graph["id"], "title": graph["title"], "snippet": raw[:240]})
         if raw.strip():
             parts.append(f"[脉络 {graph['title']}]\n{raw}")
     for node in repository.search_nodes(query, limit=10):
@@ -196,6 +196,7 @@ def answer_question(
     context = "\n\n".join(parts)[:14000]
     answer = ask_llm(question, context)
     return {
+        "question": question,
         "answer": answer,
         "sources": sources,
         "has_sources": bool(sources),

@@ -142,15 +142,19 @@ def add_node(
     order_index: int = 0, created_by: str = "agent",
     node_id: str | None = None,
     node_type: str = "concept",
+    relation_type: str = "related",
+    relation_status: str = "pending",
+    evidence: str = "",
 ) -> str:
     node_id = node_id or uuid.uuid4().hex[:12]
     conn = get_connection()
     try:
         conn.execute(
             """INSERT INTO graph_nodes (id, graph_id, parent_id, label, note,
-               node_type, related_nodes, order_index, created_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               node_type, relation_type, relation_status, evidence, related_nodes, order_index, created_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (node_id, graph_id, parent_id, label, note, node_type,
+             relation_type, relation_status, evidence,
              json.dumps(related_nodes or [], ensure_ascii=False),
              order_index, created_by),
         )

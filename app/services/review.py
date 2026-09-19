@@ -227,6 +227,7 @@ def _feynman_items(due: list[dict], count: int) -> list[dict]:
             "concept": concept["canonical_label"],
             "answer": concept.get("summary") or "",
             "meta": {"concept_id": concept["id"]},
+            "review_id": item.get("id"),
         })
     return items
 
@@ -315,6 +316,9 @@ def _grade(item: dict, response: dict) -> str:
         words.update(compact[index:index + 2] for index in range(max(0, len(compact) - 1)))
         return {word.lower() for word in words if len(word.strip()) > 0}
     answer_terms, response_terms = terms(answer), terms(text)
+    negation = re.compile(r"(不|未|无|并非|不会|不能|不是|否)")
+    if bool(negation.search(answer)) != bool(negation.search(text)) and answer and text:
+        return "回答提到了相同概念，但否定/肯定方向与参考答案不一致，请重新核对原文依据。"
     overlap = len(answer_terms & response_terms)
     total = max(1, len(answer_terms))
     coverage = round(overlap / total * 100)

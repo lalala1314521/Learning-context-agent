@@ -1,0 +1,40 @@
+{
+  "feynman": {
+    "review_id": null,
+    "persistence_calls": 0,
+    "feedback_for_negated_answer": "回答已覆盖主要概念（约 96%），可以再补充一个条件或例子。"
+  },
+  "canonical_edges": [
+    {
+      "id": "related:a:b",
+      "from": "a",
+      "to": "b",
+      "relation_type": "related",
+      "status": "confirmed",
+      "evidence": "依据：原文因果证据"
+    },
+    {
+      "id": "hierarchy:a:b",
+      "from": "a",
+      "to": "b",
+      "relation_type": "depends_on",
+      "status": "confirmed",
+      "evidence": ""
+    }
+  ],
+  "react_generation_arguments": {
+    "args": [
+      "材料正文"
+    ],
+    "kwargs": {
+      "output_format": "both"
+    }
+  },
+  "source_passed_to_generator": "材料正文\n\n## 学习目标\n比较因果机制\n\n## 展开深度\ndeep",
+  "cancel_real_generation_runner": {
+    "status": "error",
+    "stage": "失败",
+    "error": "脉络生成失败: ",
+    "cancel_requested": true
+  }
+}

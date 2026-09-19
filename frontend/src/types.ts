@@ -10,6 +10,7 @@ export type GraphNode = {
   related_nodes?: string[];
   concept_id?: string | null;
   concept_label?: string | null;
+  evidence?: string;
 };
 
 export type Graph = {
@@ -29,7 +30,7 @@ export type GraphDetail = {
   nodes: GraphNode[];
   concept_links?: ConceptLink[];
   links?: Array<{ id: string; from_node_id: string; to_node_id: string; relation_type?: string; note?: string }>;
-  structure?: { version: string; edges?: Array<{ id: string; source: string; target: string; relation_type?: string }> };
+  structure?: { version: string; edges?: Array<{ id: string; from: string; to: string; relation_type?: string; status?: string; evidence?: string; cross_graph?: boolean }> };
 };
 
 export type Concept = {
@@ -58,7 +59,7 @@ export type GalaxyData = { concepts: Concept[]; links: ConceptLink[]; domains: D
 export type AskResult = {
   question: string;
   answer: string;
-  sources: Array<{ graph_id?: string; title?: string; snippet?: string; source_name?: string }>;
+  sources: Array<{ type?: string; id?: string; graph_id?: string; title?: string; snippet?: string; source_name?: string; url?: string; node_id?: string }>;
   has_sources: boolean;
   web_fallback_used?: boolean;
 };

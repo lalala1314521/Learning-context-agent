@@ -11,7 +11,7 @@ from app.config import config
 from app.graph.state import build_initial_state
 from app.memory import repository
 from app.services.graph_management import auto_link, generate_quiz, hydrate_nodes
-from app.services.jobs import cancel_job, get_job, retry_job, start_job, ensure_job_active
+from app.services.jobs import JobCancelled, JobTimeout, cancel_job, get_job, retry_job, start_job, ensure_job_active
 from app.tools.safety import is_internal_url
 from app.web.dependencies import ensure_database, get_graph as get_graph_runner
 from app.web.routers.common import ApiError, ok
@@ -188,6 +188,8 @@ def generate_graph_async(payload: GenerateRequest):
                         job["elapsed_ms"] = int((time.time() - started) * 1000)
                         job["stage"] = _stage_label(node_name)
                         job["progress"] = min(90, 5 + len(trace) * 9)
+        except (JobCancelled, JobTimeout):
+            raise
         except Exception as exc:
             raise ApiError(f"脉络生成失败: {exc}", status=502)
 

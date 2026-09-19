@@ -129,9 +129,11 @@ def _invoke_text(llm, prompt: str) -> str:
         return ""
 
 
-def _generate_single_shot(content: str, output_format: str, llm) -> dict:
+def _generate_single_shot(content: str, output_format: str, llm, directives: str = "") -> dict:
     """S 级内容：单次 LLM 调用生成，带 Mermaid 校验 + 1 次重试 + 节点详情兜底。"""
     prompt = GRAPH_GEN_PROMPT.replace("{content}", content[: config.MAX_CONTENT_LENGTH])
+    if directives:
+        prompt += f"\n\n## 生成约束\n{directives}"
     last_reason = ""
     output: dict = {}
     for _attempt in range(2):
@@ -212,15 +214,13 @@ def generate_graph_fields(
     content = (content or "").strip()
     if not content:
         return {"error": "没有可解析的内容"}
-    context_parts = []
+    directives: list[str] = []
     if learning_goal:
-        context_parts.append(f"## 学习目标\n{learning_goal}")
+        directives.append(f"学习目标：{learning_goal}")
     if generation_depth:
-        context_parts.append(f"## 展开深度\n{generation_depth}")
+        directives.append(f"展开深度：{generation_depth}")
     if supplementary_info:
-        context_parts.append(f"## 联网搜索补充信息\n{supplementary_info}")
-    if context_parts:
-        content = f"{content}\n\n" + "\n\n".join(context_parts)
+        directives.append(f"联网搜索补充信息：{supplementary_info}")
 
     logger.info("generate_graph_fields ~%dtok", estimate_tokens(content))
     current = llm if llm is not None else (get_llm() if config.DEEPSEEK_API_KEY else None)
@@ -229,7 +229,7 @@ def generate_graph_fields(
 
     result: dict = {}
     if tier == "M":
-        mr = map_reduce(content, llm=current)
+        mr = map_reduce(content, llm=current, directives="；".join(directives))
         mermaid, markdown = mr["mermaid"], mr["markdown"]
         if fmt == "mermaid":
             markdown = ""
@@ -246,7 +246,8 @@ def generate_graph_fields(
         })
     elif tier == "L":
         book = prepare_book_payload(
-            content, llm=current, selected_indices=selected_chapters or None
+            content, llm=current, selected_indices=selected_chapters or None,
+            directives="；".join(directives),
         )
         mermaid, markdown = book["mermaid"], book["markdown"]
         if fmt == "mermaid":
@@ -263,7 +264,7 @@ def generate_graph_fields(
             "chapter_payloads": book.get("chapter_payloads", []),
         })
     else:
-        output = _generate_single_shot(content, fmt, current)
+        output = _generate_single_shot(content, fmt, current, directives="；".join(directives))
         result.update(output)
         result.update({
             "long_text_report": {"tier": "S"},
@@ -369,6 +370,9 @@ def save_generated_graph(
                     order_index=int(node.get("order_index") or index),
                     created_by="agent",
                     node_id=assigned[index],
+                    relation_type=str(node.get("relation_type") or "related"),
+                    relation_status=str(node.get("relation_status") or "pending"),
+                    evidence=str(node.get("evidence") or ""),
                 )
         else:
             for node in parse_graph_structure(mermaid, markdown):
@@ -380,6 +384,9 @@ def save_generated_graph(
                     order_index=node["order_index"],
                     created_by="agent",
                     node_id=node["id"],
+                    relation_type=str(node.get("relation_type") or "related"),
+                    relation_status=str(node.get("relation_status") or "pending"),
+                    evidence=str(node.get("evidence") or ""),
                 )
     except Exception as exc:
         logger.exception("保存节点失败: %s", exc)
@@ -409,6 +416,8 @@ def generate_and_save_graph(
     source_name: str = "",
     input_type: str = "text",
     selected_chapters: list[int] | None = None,
+    learning_goal: str = "理解主线",
+    generation_depth: str = "standard",
     llm=None,
 ) -> dict:
     """生成并保存脉络图（ReAct tool_generate_graph 使用），返回完整结果字段。"""
@@ -417,6 +426,8 @@ def generate_and_save_graph(
         output_format=output_format,
         supplementary_info=supplementary_info,
         selected_chapters=selected_chapters,
+        learning_goal=learning_goal,
+        generation_depth=generation_depth,
         llm=llm,
     )
     if fields.get("error"):

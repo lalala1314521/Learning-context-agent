@@ -57,6 +57,7 @@ def ask_knowledge_async(payload: AskRequest):
             on_event=on_event,
         )
         ensure_job_active(job)
+        result["question"] = payload.question
         result["trace"] = trace
         result["total_tokens"] = sum(int(e.get("tokens") or 0) for e in trace)
         return result

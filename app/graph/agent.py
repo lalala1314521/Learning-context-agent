@@ -203,6 +203,9 @@ def tools_node(state: AgentState) -> dict:
             observation = f"未知工具: {name}"
             logger.warning("Agent 调用了未知工具 %s", name)
         else:
+            if name == "tool_generate_graph":
+                args.setdefault("learning_goal", state.get("learning_goal") or "理解主线")
+                args.setdefault("generation_depth", state.get("generation_depth") or "standard")
             # 生成脉络时把已搜集的联网结果并入生成内容，避免搜索结果被丢弃
             if name == "tool_generate_graph" and supplementary:
                 content = str(args.get("content") or "")

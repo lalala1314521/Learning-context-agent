@@ -16,7 +16,7 @@ logger = get_logger("tools.react")
 
 
 @tool
-def tool_generate_graph(content: str, output_format: str = "both") -> str:
+def tool_generate_graph(content: str, output_format: str = "both", learning_goal: str = "理解主线", generation_depth: str = "standard") -> str:
     """根据用户提供的文本内容生成一张知识脉络图并保存到知识库，返回脉络图信息。
 
     这是"把内容整理成脉络图"的主要工具。当用户要求生成/整理/总结一份内容为
@@ -26,7 +26,7 @@ def tool_generate_graph(content: str, output_format: str = "both") -> str:
         content: 用户提供的正文内容（一段文字/粘贴的笔记/已解析的文档内容）
         output_format: 输出格式，both / mermaid / markdown
     """
-    result = generate_and_save_graph(content, output_format=output_format)
+    result = generate_and_save_graph(content, output_format=output_format, learning_goal=learning_goal, generation_depth=generation_depth)
     if result.get("error"):
         return f"脉络图生成失败: {result['error']}"
     graph_id = result["current_graph_id"]

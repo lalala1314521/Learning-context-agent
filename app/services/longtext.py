@@ -180,7 +180,7 @@ def _fallback_mermaid(concepts: list[dict], relations: list[dict]) -> tuple[str,
     return "\n".join(lines), f"# 长文本脉络\n{markdown}"
 
 
-def map_reduce(content: str, llm=None) -> dict:
+def map_reduce(content: str, llm=None, directives: str = "") -> dict:
     chunks = chunk_content(content)
     results = _parallel_extract([c["text"] for c in chunks], llm=llm)
     concepts, relations = _merge_extractions(results)
@@ -196,8 +196,11 @@ def map_reduce(content: str, llm=None) -> dict:
             f"- {r['from']} --{r['relation_type']}--> {r['to']}"
             for r in relations[:80]
         )
+        reduce_prompt = _REDUCE_PROMPT.format(concepts=concept_text, relations=relation_text)
+        if directives:
+            reduce_prompt += f"\n\n生成约束：{directives}"
         data = invoke_structured(
-            _REDUCE_PROMPT.format(concepts=concept_text, relations=relation_text),
+            reduce_prompt,
             llm=llm,
             retries=1,
         )
@@ -257,6 +260,7 @@ def prepare_book_payload(
     content: str,
     llm=None,
     selected_indices: list[int] | None = None,
+    directives: str = "",
 ) -> dict:
     chapters = detect_chapters(content)
     selected = (
@@ -266,7 +270,7 @@ def prepare_book_payload(
     )
     chapter_payloads = []
     for chapter in selected:
-        result = map_reduce(chapter["text"], llm=llm)
+        result = map_reduce(chapter["text"], llm=llm, directives=directives)
         chapter_payloads.append({
             "title": chapter["title"],
             "text": chapter["text"],

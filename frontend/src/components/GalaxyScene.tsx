@@ -1,23 +1,36 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Application, Container, Graphics, Text, TextStyle } from "pixi.js";
 import { motionOrchestrator } from "../motion";
 import { api } from "../api";
+import { useSearchParams } from "react-router-dom";
 import type { Concept, ConceptLink, Domain, GalaxyData } from "../types";
 
 type Point = { id: string; label: string; domainId?: string | null; x: number; y: number; radius: number; color: number; labelVisible: boolean };
 
 export function GalaxyScene() {
   const searchRef = useRef<HTMLInputElement>(null);
+  const [params] = useSearchParams();
   const [data, setData] = useState<GalaxyData | null>(null);
   const [selected, setSelected] = useState<Concept | null>(null);
   const [query, setQuery] = useState("");
   const [focusId, setFocusId] = useState("");
   const [zoom, setZoom] = useState(1);
-  useEffect(() => { api.galaxy().then((payload) => { setData(payload); motionOrchestrator.emit("scene.entered", "galaxy"); }).catch(() => setData({ concepts: [], links: [], domains: [] })); }, []);
+  const requestedConcept = params.get("concept") || "";
+  useEffect(() => { api.galaxy().then((payload) => { setData(payload); const target = payload.concepts.find((item) => item.id === requestedConcept || item.canonical_label === requestedConcept); if (target) { setSelected(target); setFocusId(target.id); } motionOrchestrator.emit("scene.entered", "galaxy"); }).catch(() => setData({ concepts: [], links: [], domains: [] })); }, [requestedConcept]);
   useEffect(() => { const onKey = (event: KeyboardEvent) => { if (event.key === "/" && document.activeElement?.tagName !== "INPUT") { event.preventDefault(); searchRef.current?.focus(); } if (event.key === "Escape") { setQuery(""); setFocusId(""); searchRef.current?.blur(); } }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, []);
-  const compact = data ? compressGalaxy(data) : null;
-  const displayData = compact && query.trim() ? { ...compact, concepts: compact.concepts.filter((concept) => concept.canonical_label.toLowerCase().includes(query.trim().toLowerCase())) } : compact;
-  const selectConcept = (concept: Concept) => { setSelected(concept); setFocusId(concept.id); motionOrchestrator.emit("concept.focused", concept.id); };
+  const compact = useMemo(() => data ? compressGalaxy(data) : null, [data]);
+  const displayData = useMemo(() => {
+    if (!compact) return null;
+    const normalizedQuery = query.trim().toLowerCase();
+    const neighborIds = focusId ? new Set([focusId, ...compact.links.flatMap((link) => link.from_concept === focusId ? [link.to_concept] : link.to_concept === focusId ? [link.from_concept] : [])]) : null;
+    const concepts = compact.concepts.filter((concept) => {
+      const matchesQuery = !normalizedQuery || concept.canonical_label.toLowerCase().includes(normalizedQuery);
+      const isInNeighborhood = !neighborIds || neighborIds.has(concept.id);
+      return matchesQuery && isInNeighborhood;
+    });
+    return { ...compact, concepts };
+  }, [compact, focusId, query]);
+  const selectConcept = useCallback((concept: Concept) => { setSelected(concept); setFocusId(concept.id); motionOrchestrator.emit("concept.focused", concept.id); }, []);
   return <div className="galaxy-layout"><section className="panel galaxy-panel"><div className="section-heading"><div><span className="eyebrow">GLOBAL KNOWLEDGE SPACE</span><h2>让概念彼此找到</h2></div><div className="galaxy-tools"><span className="status-chip">{data?.concepts.length || 0} 概念</span><button className="icon-button" title="缩小镜头" onClick={() => setZoom((value) => Math.max(.65, value - .15))}>−</button><button className="icon-button" title="放大镜头" onClick={() => setZoom((value) => Math.min(1.8, value + .15))}>＋</button><button className="icon-button" title="重置镜头" onClick={() => { setZoom(1); setFocusId(""); setQuery(""); motionOrchestrator.emit("scene.entered", "galaxy-reset"); }}>◎</button></div></div><div className="galaxy-search"><span>⌕</span><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && displayData?.concepts[0]) { selectConcept(displayData.concepts[0]); } }} placeholder="搜索概念，定位局部关系（/ 聚焦）" /><small>{query ? `${displayData?.concepts.length || 0} 个匹配` : "总览"}</small></div><div className="galaxy-stage">{displayData ? <PixiGalaxy data={displayData} zoom={zoom} focusId={focusId} selectedId={selected?.id} onSelect={selectConcept} /> : <div className="scene-loading">正在铺开领域与关系…</div>}<div className="galaxy-overlay"><span><i className="legend-dot root" />领域光场</span><span><i className="legend-dot" />概念</span><span><i className="legend-line" />真实关系</span></div></div></section><aside className="panel galaxy-inspector"><span className="eyebrow">CONCEPT SIGNAL</span>{selected ? <><h3>{selected.canonical_label}</h3><p>{selected.description || "这个概念还没有摘要。"}</p><div className="signal-card"><small>来自材料</small><strong>{selected.mention_count || 0} 次提及</strong></div><div className="signal-card"><small>掌握状态</small><strong>{selected.mastery?.mastery || "未复习"}</strong></div><button className="soft-button" onClick={() => setFocusId(selected.id)}>展开邻域 ↗</button></> : <div className="empty-state"><span className="empty-glyph">✺</span><p>点击星体，查看概念来源、关系和学习信号。</p></div>}</aside></div>;
 }
 
@@ -89,7 +102,7 @@ function PixiGalaxy({ data, zoom, focusId, selectedId, onSelect }: { data: Galax
 
       if (selectedId) {
         const selectedPoint = byId.get(selectedId);
-        if (selectedPoint) { const pulse = new Graphics().circle(selectedPoint.x, selectedPoint.y, selectedPoint.radius + 14).stroke({ color: 0x74e4d2, alpha: .32, width: 1.5 }); focusLayer.addChild(pulse); let phase = 0; app.ticker.add((ticker) => { phase += ticker.deltaTime * .035; pulse.scale.set(1 + Math.sin(phase) * .08); pulse.alpha = .22 + (Math.sin(phase) + 1) * .08; fieldLayer.alpha = .82 + Math.sin(phase * .4) * .08; }); }
+        if (selectedPoint) { const pulse = new Graphics().circle(selectedPoint.x, selectedPoint.y, selectedPoint.radius + 14).stroke({ color: 0x74e4d2, alpha: .32, width: 1.5 }); focusLayer.addChild(pulse); let phase = 0; app.ticker.add((ticker) => { if (motionOrchestrator.isReduced()) return; phase += ticker.deltaTime * .035; pulse.scale.set(1 + Math.sin(phase) * .08); pulse.alpha = .22 + (Math.sin(phase) + 1) * .08; fieldLayer.alpha = .82 + Math.sin(phase * .4) * .08; }); }
       }
       setReady(true);
     });

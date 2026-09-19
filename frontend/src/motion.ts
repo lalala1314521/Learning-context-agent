@@ -14,8 +14,11 @@ type Listener = (event: MotionEvent) => void;
 class MotionOrchestrator {
   private version = 0;
   private listeners = new Set<Listener>();
-  private systemReduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-  private mode: "full" | "light" | "static" = "full";
+  private media = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+  private systemReduced = this.media?.matches ?? false;
+  private mode: "full" | "light" | "static" = (localStorage.getItem("lca-motion") as "full" | "light" | "static") || "full";
+
+  constructor() { this.media?.addEventListener?.("change", (event) => { this.systemReduced = event.matches; this.emit("motion.cancelled"); }); }
 
   subscribe(listener: Listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   emit(name: MotionEventName, objectId?: string) {
@@ -24,7 +27,7 @@ class MotionOrchestrator {
     return event;
   }
   isReduced() { return this.systemReduced || this.mode === "static"; }
-  setMode(mode: "full" | "light" | "static") { this.mode = mode; document.documentElement.dataset.motion = mode; }
+  setMode(mode: "full" | "light" | "static") { this.mode = mode; localStorage.setItem("lca-motion", mode); document.documentElement.dataset.motion = mode; }
 }
 
 export const motionOrchestrator = new MotionOrchestrator();

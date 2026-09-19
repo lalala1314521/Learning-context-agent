@@ -10,7 +10,14 @@ from __future__ import annotations
 from typing import Any
 
 
-RELATION_TYPES = {"supports", "depends_on", "contrasts", "example_of", "causes", "related"}
+RELATION_TYPES = {"contains", "depends", "cause", "contrast", "extends", "example", "supports", "depends_on", "contrasts", "example_of", "causes", "related"}
+RELATION_ALIASES = {
+    "包含": "contains", "包括": "contains", "supports": "supports",
+    "依赖": "depends", "dependency": "depends", "depends_on": "depends",
+    "导致": "cause", "引起": "cause", "causes": "cause",
+    "对比": "contrast", "区别": "contrast", "contrasts": "contrast",
+    "扩展": "extends", "extends": "extends", "例子": "example", "example_of": "example",
+}
 NODE_TYPES = {"concept", "method", "case", "formula", "conclusion", "question", "source"}
 
 
@@ -42,6 +49,7 @@ def normalize_node_payloads(payloads: list[dict[str, Any]]) -> list[dict[str, An
             "order_index": safe_order(raw.get("order_index"), index),
             "evidence": str(raw.get("evidence") or "").strip()[:2000],
             "relation_type": str(raw.get("relation_type") or "related").strip().lower(),
+            "relation_status": str(raw.get("relation_status") or raw.get("status") or "pending").strip().lower(),
         })
     valid_ids = {node["id"] for node in cleaned}
     for node in cleaned:
@@ -51,6 +59,7 @@ def normalize_node_payloads(payloads: list[dict[str, Any]]) -> list[dict[str, An
             value for value in dict.fromkeys(node["related_nodes"])
             if value in valid_ids and value != node["id"]
         ]
+        node["relation_type"] = RELATION_ALIASES.get(node["relation_type"], node["relation_type"])
         if node["relation_type"] not in RELATION_TYPES:
             node["relation_type"] = "related"
         if node["evidence"] and node["evidence"] not in node["note"]:
@@ -69,9 +78,9 @@ def canonical_graph_view(graph: dict, nodes: list[dict], links: list[dict] | Non
                 "id": f"hierarchy:{parent_id}:{node['id']}",
                 "from": parent_id,
                 "to": node["id"],
-                "relation_type": "depends_on",
-                "status": "confirmed",
-                "evidence": node.get("note") or "",
+                "relation_type": node.get("relation_type") if node.get("relation_type") not in {"related", "cause", "contrast", "example"} else "contains",
+                "status": node.get("relation_status") or "pending",
+                "evidence": node.get("evidence") or "",
             })
         for related_id in node.get("related_nodes") or []:
             if related_id in node_ids and related_id != node["id"]:
@@ -81,9 +90,9 @@ def canonical_graph_view(graph: dict, nodes: list[dict], links: list[dict] | Non
                         "id": edge_id,
                         "from": node["id"],
                         "to": related_id,
-                        "relation_type": "related",
-                        "status": "confirmed",
-                        "evidence": node.get("note") or "",
+                        "relation_type": node.get("relation_type") or "related",
+                        "status": node.get("relation_status") or "pending",
+                        "evidence": node.get("evidence") or "",
                     })
     for link in links or []:
         edges.append({
@@ -91,7 +100,7 @@ def canonical_graph_view(graph: dict, nodes: list[dict], links: list[dict] | Non
             "from": link.get("from_node_id"),
             "to": link.get("to_node_id"),
             "relation_type": link.get("relation_type") or "related",
-            "status": "confirmed",
+            "status": link.get("status") or "pending",
             "evidence": link.get("note") or "",
             "cross_graph": True,
         })
