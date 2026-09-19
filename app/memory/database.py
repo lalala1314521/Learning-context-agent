@@ -54,7 +54,13 @@ def init_db() -> None:
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
     columns = [row["name"] for row in conn.execute(f"PRAGMA table_info({table})")]
     if column not in columns:
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+        except sqlite3.OperationalError as exc:
+            # 多个首屏 API 可能并发触发初始化；另一个请求已完成迁移时，
+            # 这里的重复列错误表示目标状态已经达成，应保持幂等而不是让请求失败。
+            if "duplicate column name" not in str(exc).lower():
+                raise
 
 
 def get_checkpointer():
