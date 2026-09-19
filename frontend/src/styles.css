@@ -27,6 +27,9 @@
 .review-context b { color: var(--ink); font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .review-context-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 @media (max-width: 700px) { .review-context { align-items: flex-start; flex-direction: column; } .review-context-actions { justify-content: flex-start; } }
+.mastery-readout { display: grid; gap: 4px; margin: -12px auto 28px; padding: 12px 14px; max-width: 230px; border: 1px solid rgba(116, 228, 210, .25); border-radius: 14px; background: rgba(116, 228, 210, .07); text-align: center; animation: handoff-in .4s ease both; }
+.mastery-readout small, .mastery-readout span { color: var(--muted); font-size: 11px; }
+.mastery-readout strong { color: var(--cyan); font-size: 17px; }
 .trace-stream { display: grid; gap: 7px; margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); }
 .trace-event { display: flex; gap: 8px; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .trace-event i { color: var(--cyan); font-style: normal; }
