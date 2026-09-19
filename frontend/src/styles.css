@@ -21,6 +21,12 @@
 .review-question { margin: 32px 0 16px; max-width: 650px; font-size: 25px; line-height: 1.45; }
 .review-answer { width: 100%; min-height: 170px; resize: vertical; color: var(--ink); border: 1px solid var(--line); background: rgba(4, 8, 22, .14); border-radius: 16px; padding: 18px; outline: 0; line-height: 1.75; }
 .review-controls { display: flex; align-items: center; gap: 16px; margin-top: 16px; flex-wrap: wrap; }
+.review-context { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 24px; padding: 14px 16px; border: 1px solid rgba(116, 228, 210, .22); border-radius: 16px; background: linear-gradient(120deg, rgba(116, 228, 210, .08), rgba(99, 131, 217, .06)); animation: handoff-in .45s ease both; }
+.review-context > div:first-child { display: grid; gap: 4px; min-width: 0; }
+.review-context small, .review-context span { color: var(--muted); font-size: 11px; }
+.review-context b { color: var(--ink); font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-context-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 700px) { .review-context { align-items: flex-start; flex-direction: column; } .review-context-actions { justify-content: flex-start; } }
 .trace-stream { display: grid; gap: 7px; margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); }
 .trace-event { display: flex; gap: 8px; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .trace-event i { color: var(--cyan); font-style: normal; }

@@ -146,10 +146,16 @@ def _flashcard_items(due: list[dict], count: int) -> list[dict]:
             "type": "flashcard",
             "prompt": item.get("question") or f"请解释「{item.get('node_label') or item.get('concept_label')}」解决的问题，并举出一个相关关系。",
             "answer": item.get("answer") or "",
+            "concept_id": item.get("concept_id"),
+            "graph_id": item.get("graph_id"),
+            "node_id": item.get("node_id"),
+            "concept_label": item.get("concept_label") or item.get("node_label"),
             "meta": {
                 "graph_title": item.get("graph_title"),
                 "node_label": item.get("node_label"),
                 "concept_id": item.get("concept_id"),
+                "graph_id": item.get("graph_id"),
+                "node_id": item.get("node_id"),
             },
             "review_id": item.get("id"),
         })
@@ -225,8 +231,18 @@ def _feynman_items(due: list[dict], count: int) -> list[dict]:
             "type": "feynman",
             "prompt": f"用你自己的话讲清楚「{concept['canonical_label']}」",
             "concept": concept["canonical_label"],
+            "concept_id": concept["id"],
+            "graph_id": item.get("graph_id"),
+            "node_id": item.get("node_id"),
+            "concept_label": concept["canonical_label"],
+            "graph_title": item.get("graph_title"),
             "answer": concept.get("summary") or "",
-            "meta": {"concept_id": concept["id"]},
+            "meta": {
+                "concept_id": concept["id"],
+                "graph_id": item.get("graph_id"),
+                "node_id": item.get("node_id"),
+                "graph_title": item.get("graph_title"),
+            },
             "review_id": item.get("id"),
         })
     return items
@@ -259,9 +275,19 @@ def _socratic_items(due: list[dict], count: int, llm=None) -> list[dict]:
             "type": "socratic",
             "prompt": prompt,
             "concept": concept["canonical_label"],
+            "concept_id": concept["id"],
+            "graph_id": item.get("graph_id"),
+            "node_id": item.get("node_id"),
+            "concept_label": concept["canonical_label"],
+            "graph_title": item.get("graph_title"),
             "neighbors": neighbor_text,
             "answer": concept.get("summary") or "",
-            "meta": {"concept_id": concept["id"]},
+            "meta": {
+                "concept_id": concept["id"],
+                "graph_id": item.get("graph_id"),
+                "node_id": item.get("node_id"),
+                "graph_title": item.get("graph_title"),
+            },
         })
     return items
 
