@@ -63,3 +63,10 @@
 
 .review-mode-picker { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 30px; color: var(--muted); font-size: 12px; }
 .review-mode-picker .is-selected { color: var(--ink); border-color: var(--accent); box-shadow: 0 0 0 3px rgba(115,144,255,.12); }
+
+.relation-list { display: grid; gap: 7px; margin: 24px 0; }
+.relation-list > small { color: var(--cyan); font-size: 11px; }
+.relation-card { display: grid; gap: 5px; width: 100%; padding: 10px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); color: var(--ink); text-align: left; }
+.relation-card b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.relation-card em { color: var(--muted); font-size: 10px; font-style: normal; }
+.relation-card.is-selected { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(116,228,210,.1); }

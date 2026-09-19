@@ -5,13 +5,14 @@ import { api } from "../api";
 import { useSearchParams } from "react-router-dom";
 import type { Concept, ConceptLink, Domain, GalaxyData } from "../types";
 
-type Point = { id: string; label: string; domainId?: string | null; x: number; y: number; radius: number; color: number; labelVisible: boolean };
+type Point = { id: string; label: string; domainId?: string | null; x: number; y: number; radius: number; color: number; labelVisible: boolean; labelX?: number; labelY?: number };
 
 export function GalaxyScene() {
   const searchRef = useRef<HTMLInputElement>(null);
   const [params] = useSearchParams();
   const [data, setData] = useState<GalaxyData | null>(null);
   const [selected, setSelected] = useState<Concept | null>(null);
+  const [selectedRelation, setSelectedRelation] = useState<ConceptLink | null>(null);
   const [query, setQuery] = useState("");
   const [focusId, setFocusId] = useState("");
   const [zoom, setZoom] = useState(.85);
@@ -30,8 +31,10 @@ export function GalaxyScene() {
     });
     return { ...compact, concepts };
   }, [compact, focusId, query]);
-  const selectConcept = useCallback((concept: Concept) => { setSelected(concept); if (concept.id.startsWith("domain:")) { setZoom(1); setFocusId(""); } else setFocusId(concept.id); motionOrchestrator.emit("concept.focused", concept.id); }, []);
-  return <div className="galaxy-layout"><section className="panel galaxy-panel"><div className="section-heading"><div><span className="eyebrow">GLOBAL KNOWLEDGE SPACE</span><h2>让概念彼此找到</h2></div><div className="galaxy-tools"><span className="status-chip">{zoom < .9 ? "领域总览" : `${data?.concepts.length || 0} 概念`}</span><button className="icon-button" title="缩小镜头" onClick={() => setZoom((value) => Math.max(.65, value - .15))}>−</button><button className="icon-button" title="放大镜头" onClick={() => setZoom((value) => Math.min(1.8, value + .15))}>＋</button><button className="icon-button" title="重置镜头" onClick={() => { setZoom(.85); setFocusId(""); setQuery(""); setSelected(null); motionOrchestrator.emit("scene.entered", "galaxy-reset"); }}>◎</button></div></div><div className="galaxy-search"><span>⌕</span><input ref={searchRef} value={query} onChange={(event) => { setQuery(event.target.value); if (event.target.value.trim()) setZoom(1); }} onKeyDown={(event) => { if (event.key === "Enter" && displayData?.concepts[0]) { selectConcept(displayData.concepts[0]); } }} placeholder="搜索概念，定位局部关系（/ 聚焦）" /><small>{query ? `${displayData?.concepts.length || 0} 个匹配` : zoom < .9 ? "领域聚合" : "总览"}</small></div><div className="galaxy-stage">{displayData ? <PixiGalaxy data={displayData} zoom={zoom} focusId={focusId} selectedId={selected?.id} onSelect={selectConcept} /> : <div className="scene-loading">正在铺开领域与关系…</div>}<div className="galaxy-overlay"><span><i className="legend-dot root" />领域光场</span><span><i className="legend-dot" />概念</span><span><i className="legend-line" />真实关系</span></div></div></section><aside className="panel galaxy-inspector"><span className="eyebrow">CONCEPT SIGNAL</span>{selected ? <><h3>{selected.canonical_label}</h3><p>{selected.description || (selected.id.startsWith("domain:") ? "缩小视图中的领域聚合。放大镜头可展开其中的概念与真实关系。" : "这个概念还没有摘要。")}</p><div className="signal-card"><small>来自材料</small><strong>{selected.mention_count || 0} 次提及</strong></div><div className="signal-card"><small>掌握状态</small><strong>{selected.mastery?.mastery || "未复习"}</strong></div>{!selected.id.startsWith("domain:") && <button className="soft-button" onClick={() => setFocusId(selected.id)}>展开邻域 ↗</button>}</> : <div className="empty-state"><span className="empty-glyph">✺</span><p>点击星体，查看概念来源、关系和学习信号。</p></div>}</aside></div>;
+  const selectedRelations = useMemo(() => selected && data && !selected.id.startsWith("domain:") ? data.links.filter((link) => link.from_concept === selected.id || link.to_concept === selected.id).slice(0, 6) : [], [data, selected]);
+  const labelFor = useCallback((id: string) => data?.concepts.find((concept) => concept.id === id)?.canonical_label || id, [data]);
+  const selectConcept = useCallback((concept: Concept) => { setSelected(concept); setSelectedRelation(null); if (concept.id.startsWith("domain:")) { setZoom(1); setFocusId(""); } else setFocusId(concept.id); motionOrchestrator.emit("concept.focused", concept.id); }, []);
+  return <div className="galaxy-layout"><section className="panel galaxy-panel"><div className="section-heading"><div><span className="eyebrow">GLOBAL KNOWLEDGE SPACE</span><h2>让概念彼此找到</h2></div><div className="galaxy-tools"><span className="status-chip">{zoom < .9 ? "领域总览" : `${data?.concepts.length || 0} 概念`}</span><button className="icon-button" title="缩小镜头" onClick={() => setZoom((value) => Math.max(.65, value - .15))}>−</button><button className="icon-button" title="放大镜头" onClick={() => setZoom((value) => Math.min(1.8, value + .15))}>＋</button><button className="icon-button" title="重置镜头" onClick={() => { setZoom(.85); setFocusId(""); setQuery(""); setSelected(null); setSelectedRelation(null); motionOrchestrator.emit("scene.entered", "galaxy-reset"); }}>◎</button></div></div><div className="galaxy-search"><span>⌕</span><input ref={searchRef} value={query} onChange={(event) => { setQuery(event.target.value); if (event.target.value.trim()) setZoom(1); }} onKeyDown={(event) => { if (event.key === "Enter" && displayData?.concepts[0]) { selectConcept(displayData.concepts[0]); } }} placeholder="搜索概念，定位局部关系（/ 聚焦）" /><small>{query ? `${displayData?.concepts.length || 0} 个匹配` : zoom < .9 ? "领域聚合" : "总览"}</small></div><div className="galaxy-stage">{displayData ? <PixiGalaxy data={displayData} zoom={zoom} focusId={focusId} selectedId={selected?.id} onSelect={selectConcept} /> : <div className="scene-loading">正在铺开领域与关系…</div>}<div className="galaxy-overlay"><span><i className="legend-dot root" />领域光场</span><span><i className="legend-dot" />概念</span><span><i className="legend-line" />真实关系</span></div></div></section><aside className="panel galaxy-inspector"><span className="eyebrow">CONCEPT SIGNAL</span>{selected ? <><h3>{selected.canonical_label}</h3><p>{selected.description || (selected.id.startsWith("domain:") ? "缩小视图中的领域聚合。放大镜头可展开其中的概念与真实关系。" : "这个概念还没有摘要。")}</p><div className="signal-card"><small>来自材料</small><strong>{selected.mention_count || 0} 次提及</strong></div><div className="signal-card"><small>掌握状态</small><strong>{selected.mastery?.mastery || "未复习"}</strong></div>{selectedRelations.length > 0 && <div className="relation-list"><small>真实关系 · 点击查看证据</small>{selectedRelations.map((link) => <button key={link.id} className={`relation-card ${selectedRelation?.id === link.id ? "is-selected" : ""}`} onClick={() => { setSelectedRelation(link); motionOrchestrator.emit("relation.selected", link.id); }}><b>{labelFor(link.from_concept)} —{link.relation_type || "related"}→ {labelFor(link.to_concept)}</b><em>{link.status || "pending"}</em></button>)}</div>}{selectedRelation && <div className="evidence-box"><small>关系证据</small><span>{selectedRelation.evidence || "这条关系暂时没有独立证据摘录。"}</span></div>}{!selected.id.startsWith("domain:") && <button className="soft-button" onClick={() => setFocusId(selected.id)}>展开邻域 ↗</button>}</> : <div className="empty-state"><span className="empty-glyph">✺</span><p>点击星体，查看概念来源、关系和学习信号。</p></div>}</aside></div>;
 }
 
 function compressGalaxy(data: GalaxyData): GalaxyData {
@@ -84,7 +87,7 @@ function PixiGalaxy({ data, zoom, focusId, selectedId, onSelect }: { data: Galax
       const width = root.clientWidth || 700; const height = root.clientHeight || 520;
       const overview = zoom < .9 && !focusId;
       const renderData = overview ? domainOverview(data) : data;
-      const points = project(renderData.concepts, renderData.domains, width / zoom, height / zoom);
+      const points = resolveLabelLayout(project(renderData.concepts, renderData.domains, width / zoom, height / zoom), width / zoom, height / zoom);
       const byId = new Map(points.map((point) => [point.id, point]));
       const focusIds = focusId ? new Set([focusId, ...renderData.links.flatMap((link) => link.from_concept === focusId ? [link.to_concept] : link.to_concept === focusId ? [link.from_concept] : [])]) : null;
 
@@ -125,7 +128,7 @@ function PixiGalaxy({ data, zoom, focusId, selectedId, onSelect }: { data: Galax
         const star = new Graphics().circle(point.x, point.y, point.radius).fill({ color: point.color, alpha: active ? .94 : .16 });
         star.circle(point.x, point.y, point.radius + (selectedId === point.id ? 10 : 7)).stroke({ color: point.color, alpha: selectedId === point.id ? .55 : active ? .12 : .03, width: selectedId === point.id ? 2 : 1 });
         star.eventMode = "static"; star.cursor = "pointer"; star.on("pointertap", () => onSelect(concept)); starLayer.addChild(star);
-        if (point.labelVisible || focusIds?.has(point.id)) { const label = new Text({ text: point.label, style: labelStyle }); label.alpha = active ? 1 : .2; label.x = point.x + point.radius + 7; label.y = point.y - 7; labelLayer.addChild(label); }
+        if (point.labelVisible || focusIds?.has(point.id)) { const label = new Text({ text: point.label, style: labelStyle }); label.alpha = active ? 1 : .2; label.x = point.labelX ?? point.x + point.radius + 7; label.y = point.labelY ?? point.y - 7; labelLayer.addChild(label); }
       });
 
       if (selectedId) {
@@ -147,4 +150,23 @@ function project(concepts: Concept[], domains: Domain[], width: number, height: 
   const domainKeys = [...grouped.keys()]; const anchors = new Map<string, { x: number; y: number; color: number }>(); const columns = Math.max(1, Math.ceil(Math.sqrt(domainKeys.length)));
   domainKeys.forEach((key, index) => { const row = Math.floor(index / columns); const col = index % columns; const x = width * .18 + col * (width * .64 / Math.max(1, columns - 1)); const y = height * .2 + row * (height * .58 / Math.max(1, Math.ceil(domainKeys.length / columns) - 1 || 1)); const domainIndex = Math.max(0, domains.findIndex((domain) => domain.id === key)); anchors.set(key, { x: columns === 1 ? width / 2 : x, y: domainKeys.length === 1 ? height / 2 : y, color: Number((domains[domainIndex]?.color || palette[index % palette.length]).replace("#", "0x")) }); });
   return concepts.map((concept) => { const key = concept.domain_id || "unassigned"; const anchor = anchors.get(key) || { x: width / 2, y: height / 2, color: 0x87a7ff }; const peers = grouped.get(key) || []; const peerIndex = peers.findIndex((peer) => peer.id === concept.id); const angle = peerIndex * 2.399963 + (key.length % 5) * .4; const radius = 18 + Math.sqrt(peerIndex + 1) * 17; return { id: concept.id, label: concept.canonical_label, domainId: concept.domain_id, x: anchor.x + Math.cos(angle) * Math.min(width * .24, radius * 2.2), y: anchor.y + Math.sin(angle) * Math.min(height * .25, radius * 1.7), radius: 3.5 + Math.min(9, (concept.mention_count || 1) * .8), color: anchor.color, labelVisible: labelIds.has(concept.id) }; });
+}
+
+function resolveLabelLayout(points: Point[], width: number, height: number): Point[] {
+  const occupied: Array<{ left: number; top: number; right: number; bottom: number }> = [];
+  const allowed = new Set<string>();
+  const placed = new Map<string, { x: number; y: number }>();
+  const candidates = points.filter((point) => point.labelVisible).sort((a, b) => b.radius - a.radius);
+  for (const point of candidates) {
+    const labelWidth = Math.min(170, Math.max(32, point.label.length * 12));
+    const rightSide = point.x + point.radius + 8 + labelWidth <= width - 8;
+    const x = rightSide ? point.x + point.radius + 8 : Math.max(8, point.x - point.radius - 8 - labelWidth);
+    const y = Math.min(height - 16, Math.max(14, point.y - 7));
+    const rect = { left: x - 4, top: y - 3, right: x + labelWidth, bottom: y + 15 };
+    if (occupied.some((item) => item.left < rect.right && item.right > rect.left && item.top < rect.bottom && item.bottom > rect.top)) continue;
+    occupied.push(rect);
+    allowed.add(point.id);
+    placed.set(point.id, { x, y });
+  }
+  return points.map((point) => ({ ...point, labelVisible: allowed.has(point.id), labelX: placed.get(point.id)?.x, labelY: placed.get(point.id)?.y }));
 }
